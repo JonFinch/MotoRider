@@ -1,8 +1,11 @@
 package com.motorider.models;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+
+import org.osmdroid.util.GeoPoint;
 
 public class Route {
     private String name;
@@ -41,6 +44,7 @@ public class Route {
 
     private RouteType routeType;
     private Set<Avoidance> avoidances = new HashSet<>();
+    private List<GeoPoint> routeGeometry;
 
     public RouteType getRouteType() { return routeType; }
     public void setRouteType(RouteType routeType) { this.routeType = routeType; }
@@ -49,4 +53,7 @@ public class Route {
     public void setAvoidances(Set<Avoidance> avoidances) {
         this.avoidances = avoidances != null ? avoidances : new HashSet<>();
     }
+
+    public List<GeoPoint> getRouteGeometry() { return routeGeometry; }
+    public void setRouteGeometry(List<GeoPoint> routeGeometry) { this.routeGeometry = routeGeometry; }
 }

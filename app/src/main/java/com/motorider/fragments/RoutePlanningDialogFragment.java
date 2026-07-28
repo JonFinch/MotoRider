@@ -168,13 +168,17 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
     }
     
     private void showCurvatureOptionsMenu() {
-        final RouteType[] preferences = RouteType.values();
+        final RouteType[] preferences = {
+            RouteType.DIRECT, RouteType.FAST, RouteType.CURVY, RouteType.EXTRA_CURVY
+        };
         String[] displayNames = new String[preferences.length];
+        int selectedIndex = 0;
         for (int i = 0; i < preferences.length; i++) {
             displayNames[i] = preferences[i].getDisplayName();
+            if (preferences[i] == selectedRoutePreference) {
+                selectedIndex = i;
+            }
         }
-        
-        int selectedIndex = selectedRoutePreference.ordinal();
         
         new AlertDialog.Builder(requireActivity())
             .setTitle("Route Preference")
@@ -435,8 +439,36 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
             @Override
             public void run() {
                 try {
-                    completeRoutePlanning();
-                    dismiss();
+                    waypoints.clear();
+                    
+                    for (GeocodingResult result : geocodingResults) {
+                        if (result.geoPoint != null) {
+                            String name;
+                            if (result.index == 0) {
+                                name = etStart.getText().toString().trim();
+                            } else if (result.index == startCount()) {
+                                name = etEnd.getText().toString().trim();
+                            } else {
+                                int waypointIdx = result.index - startCount() + 1;
+                                name = "Waypoint " + waypointIdx;
+                            }
+                            waypoints.add(new Waypoint(name, result.geoPoint));
+                        }
+                    }
+                    
+                    if (waypoints.size() < 2) {
+                        android.widget.Toast.makeText(requireContext(), 
+                            "Could not locate enough addresses. Please check spelling and try again.", 
+                            android.widget.Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    
+                    Waypoint start = waypoints.get(0);
+                    Waypoint end = waypoints.get(waypoints.size() - 1);
+                    List<Waypoint> intermediate = waypoints.size() > 2 ? 
+                        waypoints.subList(1, waypoints.size() - 1) : new ArrayList<>();
+                    
+                    requestRouteFromEngine(start, end, intermediate);
                 } catch (Exception e) {
                     Log.e(TAG, "Error completing route planning", e);
                 }
@@ -444,47 +476,39 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
         });
     }
     
-    private void completeRoutePlanning() {
-        waypoints.clear();
-        
-        for (GeocodingResult result : geocodingResults) {
-            if (result.geoPoint != null) {
-                String name;
-                if (result.index == 0) {
-                    name = etStart.getText().toString().trim();
-                } else if (result.index == startCount()) {
-                    name = etEnd.getText().toString().trim();
-                } else {
-                    int waypointIdx = result.index - startCount() + 1;
-                    name = "Waypoint " + waypointIdx;
+    private void requestRouteFromEngine(Waypoint start, Waypoint end, List<Waypoint> intermediate) {
+        routeService.calculateRouteAsync(start, end, intermediate, selectedRoutePreference, selectedAvoidances,
+            new RouteService.RouteCalculationCallback() {
+                @Override
+                public void onRouteCalculated(Route route) {
+                    final Route result = route;
+                    result.setRouteType(selectedRouteType);
+                    
+                    requireActivity().runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (listener != null) {
+                                listener.onRoutePlanned(result);
+                            }
+                            dismiss();
+                            Log.d(TAG, "Route planned with " + waypoints.size() + 
+                                " waypoints, preference: " + selectedRoutePreference.getDisplayName());
+                        }
+                    });
                 }
-                waypoints.add(new Waypoint(name, result.geoPoint));
-            }
-        }
-        
-        if (waypoints.size() < 2) {
-            android.widget.Toast.makeText(requireContext(), 
-                "Could not locate enough addresses. Please check spelling and try again.", 
-                android.widget.Toast.LENGTH_LONG).show();
-            return;
-        }
-        
-        Waypoint start = waypoints.get(0);
-        Waypoint end = waypoints.get(waypoints.size() - 1);
-        List<Waypoint> intermediate = waypoints.size() > 2 ? 
-            waypoints.subList(1, waypoints.size() - 1) : new ArrayList<>();
-        
-        Route route = routeService.calculateMotorcycleRoute(start, end, intermediate, selectedRoutePreference, selectedAvoidances);
-        
-        if (route != null) {
-            route.setRouteType(selectedRouteType);
-            
-            if (listener != null) {
-                listener.onRoutePlanned(route);
-            }
-        }
-        
-        Log.d(TAG, "Route planned with " + waypoints.size() + " waypoints, preference: " + selectedRoutePreference.getDisplayName());
+                
+                @Override
+                public void onError(String error) {
+                    requireActivity().runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            android.widget.Toast.makeText(requireContext(), 
+                                "Route calculation failed: " + error, 
+                                android.widget.Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            });
     }
     
     private int startCount() {

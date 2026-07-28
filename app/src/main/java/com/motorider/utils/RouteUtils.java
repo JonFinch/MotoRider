@@ -180,6 +180,72 @@ public class RouteUtils {
         return null;
     }
     
+    public static class OsrmResult {
+        public List<GeoPoint> geometry;
+        public double distance;
+        public double duration;
+
+        public OsrmResult(List<GeoPoint> geometry, double distance, double duration) {
+            this.geometry = geometry;
+            this.distance = distance;
+            this.duration = duration;
+        }
+    }
+
+    public static OsrmResult parseOsrmResponse(String jsonResponse) {
+        if (jsonResponse == null || !jsonResponse.contains("\"code\":\"Ok\"")) {
+            return null;
+        }
+
+        try {
+            int coordsStart = jsonResponse.indexOf("\"coordinates\":");
+            if (coordsStart < 0) return null;
+            coordsStart = jsonResponse.indexOf('[', coordsStart);
+            int coordsEnd = jsonResponse.indexOf(']', coordsStart);
+            String coordsArray = jsonResponse.substring(coordsStart + 1, coordsEnd);
+
+            int distanceIdx = jsonResponse.indexOf("\"distance\":");
+            int durationIdx = jsonResponse.indexOf("\"duration\":");
+
+            if (distanceIdx < 0 || durationIdx < 0) return null;
+
+            int distStart = jsonResponse.indexOf(':', distanceIdx) + 1;
+            int distEnd = jsonResponse.indexOf(',', distStart);
+            if (distEnd < 0) distEnd = jsonResponse.indexOf('}', distStart);
+
+            int durStart = jsonResponse.indexOf(':', durationIdx) + 1;
+            int durEnd = jsonResponse.indexOf(',', durStart);
+            if (durEnd < 0) durEnd = jsonResponse.indexOf('}', durStart);
+
+            double distance = Double.parseDouble(jsonResponse.substring(distStart, distEnd).trim());
+            double duration = Double.parseDouble(jsonResponse.substring(durStart, durEnd).trim());
+
+            List<GeoPoint> geometry = new java.util.ArrayList<>();
+            int searchPos = 0;
+            while (true) {
+                int bracketStart = coordsArray.indexOf('[', searchPos);
+                if (bracketStart < 0) break;
+                int bracketEnd = coordsArray.indexOf(']', bracketStart);
+                if (bracketEnd < 0) break;
+
+                String coordPair = coordsArray.substring(bracketStart + 1, bracketEnd);
+                int commaPos = coordPair.indexOf(',');
+                if (commaPos > 0) {
+                    double lon = Double.parseDouble(coordPair.substring(0, commaPos).trim());
+                    double lat = Double.parseDouble(coordPair.substring(commaPos + 1).trim());
+                    geometry.add(new GeoPoint(lat, lon));
+                }
+                searchPos = bracketEnd + 1;
+            }
+
+            if (geometry.isEmpty()) return null;
+            return new OsrmResult(geometry, distance, duration);
+        } catch (Exception e) {
+            android.util.Log.w("RouteUtils", "Failed to parse OSRM response", e);
+            return null;
+        }
+    }
+
     public static GeoPoint parseGeocodingResponse(String jsonResponse) {
         if (jsonResponse == null || !jsonResponse.startsWith("[{")) {
             return null;

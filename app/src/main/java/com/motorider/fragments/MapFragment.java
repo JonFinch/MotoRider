@@ -181,20 +181,25 @@ public class MapFragment extends Fragment {
                 @Override
                 public void onRoutePlanned(Route route) {
                     currentRoute = route;
-                    List<GeoPoint> routePoints = new ArrayList<>();
-                    for (Waypoint waypoint : route.getWaypoints()) {
-                        routePoints.add(waypoint.getLocation());
-                    }
                     if (mapRenderer != null && mapView != null) {
-                        mapRenderer.renderMotorcycleRoute(mapView, routePoints);
-                        if (!routePoints.isEmpty()) {
-                            GeoPoint startPoint = routePoints.get(0);
+                        List<GeoPoint> renderPoints;
+                        if (route.getRouteGeometry() != null && !route.getRouteGeometry().isEmpty()) {
+                            renderPoints = route.getRouteGeometry();
+                        } else {
+                            renderPoints = new ArrayList<>();
+                            for (Waypoint waypoint : route.getWaypoints()) {
+                                renderPoints.add(waypoint.getLocation());
+                            }
+                        }
+                        mapRenderer.renderMotorcycleRoute(mapView, renderPoints);
+                        if (!renderPoints.isEmpty()) {
+                            GeoPoint startPoint = renderPoints.get(0);
                             mapView.getController().setCenter(startPoint);
                             mapView.getController().setZoom(15.0);
                             
-                            if (routePoints.size() > 1) {
+                            if (renderPoints.size() > 1) {
                                 double north = -90, south = 90, east = -180, west = 180;
-                                for (GeoPoint pt : routePoints) {
+                                for (GeoPoint pt : renderPoints) {
                                     north = Math.max(north, pt.getLatitude());
                                     south = Math.min(south, pt.getLatitude());
                                     east = Math.max(east, pt.getLongitude());
