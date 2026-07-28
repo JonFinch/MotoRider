@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="16dp"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="4dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Top section: Curvature and Avoidances -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_curvature"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:text="Curvature"
+                android:textSize="12sp"
+                app:icon="@drawable/ic_curvature"
+                app:iconGravity="textStart" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_avoidances"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Avoidances"
+                android:textSize="12sp"
+                app:icon="@drawable/ic_avoidances"
+                app:iconGravity="textStart" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_more_options"
+                style="@style/Widget.Material3.Button.IconButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:icon="@drawable/ic_more_vert" />
+        </LinearLayout>
+
+        <!-- Waypoint list -->
+        <LinearLayout
+            android:id="@+id/waypoint_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="16dp">
+
+            <!-- Start waypoint -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                app:cardBackgroundColor="#E3F2FD"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="12dp">
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:contentDescription="Start"
+                        android:src="@drawable/ic_home" />
+
+                    <EditText
+                        android:id="@+id/et_start"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:background="@null"
+                        android:hint="Start location"
+                        android:inputType="text"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:textSize="14sp" />
+
+                    <ImageButton
+                        android:id="@+id/btn_set_start"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:background="@android:color/transparent"
+                        android:contentDescription="Set start"
+                        android:src="@drawable/ic_set_location" />
+
+                    <ImageButton
+                        android:id="@+id/btn_remove_start"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:background="@android:color/transparent"
+                        android:contentDescription="Remove"
+                        android:src="@drawable/ic_close" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Intermediate waypoints container -->
+            <LinearLayout
+                android:id="@+id/intermediate_waypoints"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <!-- Route mode selector -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+
+                <ImageButton
+                    android:id="@+id/btn_motorcycle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Motorcycle"
+                    android:src="@drawable/ic_motorcycle"
+                    android:padding="8dp" />
+
+                <ImageButton
+                    android:id="@+id/btn_truck"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Truck"
+                    android:src="@drawable/ic_truck"
+                    android:padding="8dp"
+                    android:layout_marginStart="8dp" />
+
+                <ImageButton
+                    android:id="@+id/btn_car"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Car"
+                    android:src="@drawable/ic_car"
+                    android:padding="8dp"
+                    android:layout_marginStart="8dp" />
+
+                <ImageButton
+                    android:id="@+id/btn_bike"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Bike"
+                    android:src="@drawable/ic_bike"
+                    android:padding="8dp"
+                    android:layout_marginStart="8dp" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_add_waypoint"
+                    style="@style/Widget.Material3.Button.IconButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:icon="@drawable/ic_add" />
+            </LinearLayout>
+
+            <!-- End waypoint -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                app:cardBackgroundColor="#FFEBEE"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="12dp">
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:contentDescription="End"
+                        android:src="@drawable/ic_flag" />
+
+                    <EditText
+                        android:id="@+id/et_end"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:background="@null"
+                        android:hint="End location"
+                        android:inputType="text"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:textSize="14sp" />
+
+                    <ImageButton
+                        android:id="@+id/btn_set_end"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:background="@android:color/transparent"
+                        android:contentDescription="Set end"
+                        android:src="@drawable/ic_set_location" />
+
+                    <ImageButton
+                        android:id="@+id/btn_remove_end"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:background="@android:color/transparent"
+                        android:contentDescription="Remove"
+                        android:src="@drawable/ic_close" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+
+        <!-- Plan button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_plan_route"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Plan Route" />
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

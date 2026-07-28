@@ -1,0 +1,23 @@
+# Build outputs
+build/
+app/build/
+
+# Gradle
+.gradle/
+gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio
+.idea/
+*.iml
+*.key
+*.keystore
+
+# Local configuration
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
