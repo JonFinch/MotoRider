@@ -1,13 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
+    <!-- Primary brand -->
+    <color name="primary">#FF1565C0</color>
+    <color name="primary_dark">#FF0D47A1</color>
+    <color name="primary_light">#FF42A5F5</color>
+    <color name="on_primary">#FFFFFFFF</color>
+
+    <!-- Secondary brand (amber/mustard for motorcycle accent) -->
+    <color name="secondary">#FFFF6F00</color>
+    <color name="secondary_dark">#FFE65100</color>
+    <color name="secondary_light">#FFFFCA28</color>
+    <color name="on_secondary">#FFFFFFFF</color>
+
+    <!-- Surface & Background -->
+    <color name="surface">#FFFFFFFF</color>
+    <color name="on_surface">#FF1C1B1F</color>
+    <color name="on_surface_variant">#FF49454F</color>
+    <color name="background">#FFFDFBFF</color>
+    <color name="on_background">#FF1C1B1F</color>
+    <color name="surface_variant">#FFE7E0EC</color>
+    <color name="outline">#FF79747E</color>
+
+    <!-- Error -->
+    <color name="error">#FFD32F2F</color>
+    <color name="on_error">#FFFFFFFF</color>
+
+    <!-- Semantic -->
+    <color name="start_location_bg">#FFE3F2FD</color>
+    <color name="end_location_bg">#FFFFEBEE</color>
+    <color name="route_purple">#FFAA00FF</color>
+    <color name="route_purple_fill">#55AA00FF</color>
+
+    <!-- Neutrals -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="motorcycle_blue">#003366</color>
-    <color name="motorcycle_red">#CC0000</color>
-    <color name="motorcycle_gray">#333333</color>
+    <color name="gray_50">#FFF8F8F8</color>
+    <color name="gray_100">#FFF5F5F5</color>
+    <color name="gray_200">#FFEEEEEE</color>
+    <color name="gray_400">#FFBDBDBD</color>
+    <color name="gray_600">#FF757575</color>
+    <color name="gray_800">#FF424242</color>
 </resources>

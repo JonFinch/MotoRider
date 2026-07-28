@@ -1,6 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">MotoRider</string>
     <string name="title_activity_main">MotoRider</string>
     <string name="navigation_drawer_open">Open navigation drawer</string>
     <string name="navigation_drawer_close">Close navigation drawer</string>
+
+    <!-- Map -->
+    <string name="start_navigation">Start Navigation</string>
+    <string name="plan_route">Plan Route</string>
+
+    <!-- Route Planning -->
+    <string name="curvature">Curvature</string>
+    <string name="avoidances">Avoidances</string>
+    <string name="plan_route_button">Plan Route</string>
+    <string name="add_waypoint">Add waypoint</string>
+    <string name="start_location_hint">Start location</string>
+    <string name="end_location_hint">End location</string>
+    <string name="waypoint_hint">Waypoint %d</string>
+    <string name="set_start_location">Set start location</string>
+    <string name="set_end_location">Set end location</string>
+    <string name="remove">Remove</string>
+    <string name="route_preference_title">Route Preference</string>
+    <string name="avoidances_title">Avoidances</string>
+    <string name="clear_all">Clear All</string>
+    <string name="done">Done</string>
+    <string name="more_options">More options</string>
+
+    <!-- Route types -->
+    <string name="direct">Direct</string>
+    <string name="fast">Fast</string>
+    <string name="curvy">Curvy</string>
+    <string name="extra_curvy">Extra Curvy</string>
+
+    <!-- Vehicle types -->
+    <string name="motorcycle">Motorcycle</string>
+    <string name="truck">Truck</string>
+    <string name="car">Car</string>
+    <string name="bike">Bicycle</string>
+
+    <!-- Avoidances -->
+    <string name="highways">Highways</string>
+    <string name="toll_roads">Toll Roads</string>
+    <string name="ferries">Ferries</string>
+    <string name="unpaved_roads">Unpaved Roads</string>
+    <string name="narrow_roads">Narrow Roads</string>
+
+    <!-- Messages -->
+    <string name="navigation_started">Navigation started</string>
+    <string name="please_plan_route_first">Please plan a route first</string>
+    <string name="please_enter_locations">Please enter at least start or end location</string>
+    <string name="could_not_locate_addresses">Could not locate enough addresses. Please check spelling and try again.</string>
+    <string name="route_calculation_failed">Route calculation failed: %s</string>
+    <string name="error_ui_not_initialized">Error: UI not initialized</string>
+    <string name="avoidances_count">Avoidances (%d)</string>
+    <string name="coming_soon">Coming soon</string>
 </resources>
