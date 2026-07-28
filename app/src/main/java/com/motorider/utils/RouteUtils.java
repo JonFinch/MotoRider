@@ -154,8 +154,16 @@ public class RouteUtils {
                             int lonEnd = json.indexOf(',', lonStart);
                             if (lonEnd < 0) lonEnd = json.indexOf('}', lonStart);
                             
-                            double lat = Double.parseDouble(json.substring(latStart, latEnd).trim());
-                            double lon = Double.parseDouble(json.substring(lonStart, lonEnd).trim());
+                            String latStr = json.substring(latStart, latEnd).trim();
+                            String lonStr = json.substring(lonStart, lonEnd).trim();
+                            
+                            if (latStr.startsWith("\"")) latStr = latStr.substring(1);
+                            if (latStr.endsWith("\"")) latStr = latStr.substring(0, latStr.length() - 1);
+                            if (lonStr.startsWith("\"")) lonStr = lonStr.substring(1);
+                            if (lonStr.endsWith("\"")) lonStr = lonStr.substring(0, lonStr.length() - 1);
+                            
+                            double lat = Double.parseDouble(latStr);
+                            double lon = Double.parseDouble(lonStr);
                             
                             result[0] = lat;
                             result[1] = lon;
