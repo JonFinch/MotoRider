@@ -26,6 +26,7 @@ import org.osmdroid.events.MapListener;
 import org.osmdroid.events.ScrollEvent;
 import org.osmdroid.events.ZoomEvent;
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
+import org.osmdroid.util.BoundingBox;
 import org.osmdroid.util.GeoPoint;
 import org.osmdroid.views.MapView;
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay;
@@ -186,6 +187,26 @@ public class MapFragment extends Fragment {
                     }
                     if (mapRenderer != null && mapView != null) {
                         mapRenderer.renderMotorcycleRoute(mapView, routePoints);
+                        if (!routePoints.isEmpty()) {
+                            GeoPoint startPoint = routePoints.get(0);
+                            mapView.getController().setCenter(startPoint);
+                            mapView.getController().setZoom(15.0);
+                            
+                            if (routePoints.size() > 1) {
+                                double north = -90, south = 90, east = -180, west = 180;
+                                for (GeoPoint pt : routePoints) {
+                                    north = Math.max(north, pt.getLatitude());
+                                    south = Math.min(south, pt.getLatitude());
+                                    east = Math.max(east, pt.getLongitude());
+                                    west = Math.min(west, pt.getLongitude());
+                                }
+                                BoundingBox boundingBox = new BoundingBox(
+                                    north + 0.02, east + 0.02,
+                                    south - 0.02, west - 0.02
+                                );
+                                mapView.zoomToBoundingBox(boundingBox, true);
+                            }
+                        }
                     }
                     if (isAdded() && getContext() != null) {
                         Toast.makeText(getContext(), 

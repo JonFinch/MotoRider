@@ -23,8 +23,8 @@ public class MotorcycleMapRenderer {
             routePolygon.addPoint(point);
         }
         
-        routePolygon.setFillColor(0x55003366);
-        routePolygon.setStrokeColor(0xFF003366);
+        routePolygon.setFillColor(0x55AA00FF);
+        routePolygon.setStrokeColor(0xFFAA00FF);
         routePolygon.setStrokeWidth(8f);
         
         mapView.getOverlays().add(routePolygon);
