@@ -1,20 +1,27 @@
 package com.motorider.services;
 
+import com.motorider.models.Avoidance;
 import com.motorider.models.Route;
 import com.motorider.models.RouteType;
 import com.motorider.models.Waypoint;
 import com.motorider.utils.RouteUtils;
 import org.osmdroid.util.GeoPoint;
 import java.util.List;
+import java.util.Set;
 
 public class RouteService {
     
     public Route calculateMotorcycleRoute(Waypoint start, Waypoint end, List<Waypoint> waypoints) {
-        return calculateMotorcycleRoute(start, end, waypoints, RouteType.MOTORCYCLE);
+        return calculateMotorcycleRoute(start, end, waypoints, RouteType.MOTORCYCLE, null);
     }
     
     public Route calculateMotorcycleRoute(Waypoint start, Waypoint end, List<Waypoint> waypoints, RouteType routePreference) {
+        return calculateMotorcycleRoute(start, end, waypoints, routePreference, null);
+    }
+    
+    public Route calculateMotorcycleRoute(Waypoint start, Waypoint end, List<Waypoint> waypoints, RouteType routePreference, Set<Avoidance> avoidances) {
         Route route = new Route(routePreference.getDisplayName() + " Route", waypoints);
+        route.setAvoidances(avoidances);
         
         calculateRouteMetrics(route, routePreference);
         
@@ -53,8 +60,15 @@ public class RouteService {
             }
         }
         
-        route.setDistance(totalDistance / 1000.0);
-        route.setDuration(totalDuration);
+        double avoidancePenalty = 0.0;
+        Set<Avoidance> avoidances = route.getAvoidances();
+        if (avoidances != null && !avoidances.isEmpty()) {
+            double penaltyPerItem = 0.05 * avoidances.size();
+            avoidancePenalty = Math.min(penaltyPerItem, 0.25);
+        }
+        
+        route.setDistance((totalDistance / 1000.0) * (1.0 + avoidancePenalty));
+        route.setDuration(totalDuration * (1.0 + avoidancePenalty));
         
         double baseCurvatureScore = RouteUtils.calculateCurvatureScore(waypoints);
         route.setCurvatureScore(baseCurvatureScore * routePreference.getCurvatureWeight());

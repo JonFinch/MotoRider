@@ -1,6 +1,8 @@
 package com.motorider.models;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class Route {
     private String name;
@@ -38,7 +40,13 @@ public class Route {
     public void setElevationGain(double elevationGain) { this.elevationGain = elevationGain; }
 
     private RouteType routeType;
+    private Set<Avoidance> avoidances = new HashSet<>();
 
     public RouteType getRouteType() { return routeType; }
     public void setRouteType(RouteType routeType) { this.routeType = routeType; }
+
+    public Set<Avoidance> getAvoidances() { return avoidances; }
+    public void setAvoidances(Set<Avoidance> avoidances) {
+        this.avoidances = avoidances != null ? avoidances : new HashSet<>();
+    }
 }

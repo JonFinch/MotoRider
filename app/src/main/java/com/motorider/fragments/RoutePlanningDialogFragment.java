@@ -15,6 +15,7 @@ import androidx.appcompat.app.AlertDialog;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.motorider.R;
+import com.motorider.models.Avoidance;
 import com.motorider.models.Route;
 import com.motorider.models.RouteType;
 import com.motorider.models.Waypoint;
@@ -24,7 +25,9 @@ import com.motorider.utils.RouteUtils;
 import org.osmdroid.util.GeoPoint;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFragment {
     
@@ -37,6 +40,7 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
     private OnRoutePlannedListener listener;
     private RouteType selectedRouteType = RouteType.MOTORCYCLE;
     private RouteType selectedRoutePreference = RouteType.DIRECT;
+    private Set<Avoidance> selectedAvoidances = new HashSet<>();
     private List<Waypoint> waypoints = new ArrayList<>();
     private RouteService routeService = new RouteService();
     private int geocodingRequestsPending = 0;
@@ -188,9 +192,43 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
     }
     
     private void showAvoidancesDialog() {
-        android.widget.Toast.makeText(requireContext(), 
-            "Avoidances: Coming soon", android.widget.Toast.LENGTH_SHORT).show();
+        final Avoidance[] allAvoidances = Avoidance.values();
+        String[] displayNames = new String[allAvoidances.length];
+        boolean[] checked = new boolean[allAvoidances.length];
+        
+        for (int i = 0; i < allAvoidances.length; i++) {
+            displayNames[i] = allAvoidances[i].getDisplayName();
+            checked[i] = selectedAvoidances.contains(allAvoidances[i]);
+        }
+        
+        new AlertDialog.Builder(requireActivity())
+            .setTitle("Avoidances")
+            .setMultiChoiceItems(displayNames, checked, (dialog, which, isChecked) -> {
+                if (isChecked) {
+                    selectedAvoidances.add(allAvoidances[which]);
+                } else {
+                    selectedAvoidances.remove(allAvoidances[which]);
+                }
+            })
+            .setPositiveButton("Done", (dialog, which) -> {
+                updateAvoidancesButtonText();
+            })
+            .setNegativeButton("Clear All", (dialog, which) -> {
+                selectedAvoidances.clear();
+                updateAvoidancesButtonText();
+            })
+            .show();
+        
         Log.d(TAG, "Avoidances button tapped");
+    }
+    
+    private void updateAvoidancesButtonText() {
+        if (btnAvoidances == null) return;
+        if (selectedAvoidances.isEmpty()) {
+            btnAvoidances.setText("Avoidances");
+        } else {
+            btnAvoidances.setText("Avoidances (" + selectedAvoidances.size() + ")");
+        }
     }
     
     private void showMoreOptionsDialog() {
@@ -436,7 +474,7 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
         List<Waypoint> intermediate = waypoints.size() > 2 ? 
             waypoints.subList(1, waypoints.size() - 1) : new ArrayList<>();
         
-        Route route = routeService.calculateMotorcycleRoute(start, end, intermediate, selectedRoutePreference);
+        Route route = routeService.calculateMotorcycleRoute(start, end, intermediate, selectedRoutePreference, selectedAvoidances);
         
         if (route != null) {
             route.setRouteType(selectedRouteType);
