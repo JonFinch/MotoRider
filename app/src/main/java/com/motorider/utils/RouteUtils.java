@@ -21,6 +21,12 @@ public class RouteUtils {
 
     public static void geocodeLocation(String locationName, GeocodingCallback callback) {
         ExecutorService executor = Executors.newSingleThreadExecutor();
+        final android.os.Handler[] mainHandler = new android.os.Handler[1];
+        try {
+            mainHandler[0] = new android.os.Handler(android.os.Looper.getMainLooper());
+        } catch (Exception e) {
+            // No main looper available (e.g., in unit tests)
+        }
         
         executor.execute(() -> {
             try {
@@ -53,7 +59,14 @@ public class RouteUtils {
                 }
             } catch (Exception e) {
                 android.util.Log.w("RouteUtils", "Geocoding failed for: " + locationName, e);
-                if (callback != null) callback.onError("Network error: " + e.getMessage());
+                final String errorMsg = "Network error: " + e.getMessage();
+                if (callback != null) {
+                    if (mainHandler[0] != null) {
+                        mainHandler[0].post(() -> callback.onError(errorMsg));
+                    } else {
+                        callback.onError(errorMsg);
+                    }
+                }
             }
             
             executor.shutdown();

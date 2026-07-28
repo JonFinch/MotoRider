@@ -142,12 +142,14 @@ public class RouteUtilsTest {
     @Test
     public void testGeocodingCallbackIsNullSafe() {
         // Test that geocodeLocation handles null callback gracefully
-        // This should not throw any exceptions
+        // Uses a short timeout to avoid hanging in test environments
         try {
             RouteUtils.geocodeLocation("Test Location", null);
-            Thread.sleep(2000);
+            Thread.sleep(3000);
+        } catch (AssertionError e) {
+            throw e;
         } catch (Exception e) {
-            fail("Should not throw exception with null callback");
+            fail("Should not throw exception with null callback: " + e.getMessage());
         }
     }
 

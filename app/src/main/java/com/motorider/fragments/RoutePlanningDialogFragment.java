@@ -341,8 +341,6 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
                     
                     @Override
                     public void onError(String error) {
-                        android.widget.Toast.makeText(requireContext(), 
-                            error, android.widget.Toast.LENGTH_SHORT).show();
                         onGeocodingComplete();
                     }
                 });
@@ -359,8 +357,6 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
                     
                     @Override
                     public void onError(String error) {
-                        android.widget.Toast.makeText(requireContext(), 
-                            error, android.widget.Toast.LENGTH_SHORT).show();
                         onGeocodingComplete();
                     }
                 });
@@ -377,8 +373,6 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
                     
                     @Override
                     public void onError(String error) {
-                        android.widget.Toast.makeText(requireContext(), 
-                            error, android.widget.Toast.LENGTH_SHORT).show();
                         onGeocodingComplete();
                     }
                 });
@@ -399,6 +393,20 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
             return;
         }
         
+        requireActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    completeRoutePlanning();
+                    dismiss();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error completing route planning", e);
+                }
+            }
+        });
+    }
+    
+    private void completeRoutePlanning() {
         waypoints.clear();
         
         for (GeocodingResult result : geocodingResults) {
@@ -438,7 +446,6 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
             }
         }
         
-        dismiss();
         Log.d(TAG, "Route planned with " + waypoints.size() + " waypoints, preference: " + selectedRoutePreference.getDisplayName());
     }
     
