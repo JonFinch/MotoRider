@@ -82,7 +82,7 @@ public class MapFragment extends Fragment {
             // Set initial zoom level (check controller is available)
             if (mapView.getController() != null) {
                 mapView.getController().setZoom(12.0);
-                mapView.getController().setCenter(new GeoPoint(40.7128, -74.0060)); // Default to NYC
+                mapView.getController().setCenter(new GeoPoint(51.5074, -0.1278)); // Default to London, UK
             }
             
             // Add map listener for debugging

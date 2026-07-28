@@ -1,5 +1,6 @@
 package com.motorider.utils;
 
+import com.motorider.models.RouteType;
 import com.motorider.models.Waypoint;
 import org.osmdroid.util.GeoPoint;
 import org.junit.Test;
@@ -136,5 +137,43 @@ public class RouteUtilsTest {
     public void testParseGeocodingResponseNull() {
         GeoPoint result = RouteUtils.parseGeocodingResponse(null);
         assertNull("Should return null for null input", result);
+    }
+
+    @Test
+    public void testGeocodingCallbackIsNullSafe() {
+        // Test that geocodeLocation handles null callback gracefully
+        // This should not throw any exceptions
+        try {
+            RouteUtils.geocodeLocation("Test Location", null);
+            Thread.sleep(2000);
+        } catch (Exception e) {
+            fail("Should not throw exception with null callback");
+        }
+    }
+
+    @Test
+    public void testRouteTypeCurvatureWeights() {
+        assertEquals("DIRECT should have curvature weight 0.0", 0.0, RouteType.DIRECT.getCurvatureWeight(), 0.01);
+        assertEquals("FAST should have curvature weight 0.3", 0.3, RouteType.FAST.getCurvatureWeight(), 0.01);
+        assertEquals("CURVY should have curvature weight 0.7", 0.7, RouteType.CURVY.getCurvatureWeight(), 0.01);
+        assertEquals("EXTRA_CURVY should have curvature weight 1.0", 1.0, RouteType.EXTRA_CURVY.getCurvatureWeight(), 0.01);
+        assertEquals("MOTORCYCLE should have curvature weight 0.5", 0.5, RouteType.MOTORCYCLE.getCurvatureWeight(), 0.01);
+    }
+
+    @Test
+    public void testRouteTypeSpeedFactors() {
+        assertEquals("DIRECT should have speed factor 1.2", 1.2, RouteType.DIRECT.getSpeedFactor(), 0.01);
+        assertEquals("FAST should have speed factor 1.0", 1.0, RouteType.FAST.getSpeedFactor(), 0.01);
+        assertEquals("CURVY should have speed factor 0.8", 0.8, RouteType.CURVY.getSpeedFactor(), 0.01);
+        assertEquals("EXTRA_CURVY should have speed factor 0.6", 0.6, RouteType.EXTRA_CURVY.getSpeedFactor(), 0.01);
+        assertEquals("MOTORCYCLE should have speed factor 1.0", 1.0, RouteType.MOTORCYCLE.getSpeedFactor(), 0.01);
+    }
+
+    @Test
+    public void testRouteTypeDisplayNames() {
+        assertEquals("DIRECT display name", "Direct", RouteType.DIRECT.getDisplayName());
+        assertEquals("FAST display name", "Fast", RouteType.FAST.getDisplayName());
+        assertEquals("CURVY display name", "Curvy", RouteType.CURVY.getDisplayName());
+        assertEquals("EXTRA_CURVY display name", "Extra Curvy", RouteType.EXTRA_CURVY.getDisplayName());
     }
 }

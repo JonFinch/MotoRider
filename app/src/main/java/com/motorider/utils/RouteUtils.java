@@ -1,7 +1,5 @@
 package com.motorider.utils;
 
-import android.os.Handler;
-import android.os.Looper;
 import com.motorider.models.Waypoint;
 import org.osmdroid.util.GeoPoint;
 import java.io.BufferedReader;
@@ -15,6 +13,52 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class RouteUtils {
+    
+    public interface GeocodingCallback {
+        void onResult(GeoPoint geoPoint);
+        void onError(String error);
+    }
+
+    public static void geocodeLocation(String locationName, GeocodingCallback callback) {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        
+        executor.execute(() -> {
+            try {
+                String encoded = URLEncoder.encode(locationName, StandardCharsets.UTF_8.name());
+                URL urlObj = new URL("https://nominatim.openstreetmap.org/search?q=" + 
+                    encoded + "&format=json&limit=1");
+                
+                HttpURLConnection conn = (HttpURLConnection) urlObj.openConnection();
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("User-Agent", "MotoRider/1.0");
+                
+                try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(conn.getInputStream()))) {
+                    
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        response.append(line);
+                    }
+                    
+                    GeoPoint parsed = parseGeocodingResponse(response.toString());
+                    if (parsed != null) {
+                        if (callback != null) callback.onResult(parsed);
+                    } else {
+                        if (callback != null) callback.onError("Location not found: " + locationName);
+                    }
+                } finally {
+                    conn.disconnect();
+                }
+            } catch (Exception e) {
+                android.util.Log.w("RouteUtils", "Geocoding failed for: " + locationName, e);
+                if (callback != null) callback.onError("Network error: " + e.getMessage());
+            }
+            
+            executor.shutdown();
+        });
+    }
     
     /**
      * Calculate curvature score for a route based on turns
@@ -113,59 +157,13 @@ public class RouteUtils {
         return elevationGain;
     }
 
+    /**
+     * @deprecated Use geocodeLocation(String, GeocodingCallback) instead.
+     * This method blocks the calling thread and causes ANRs.
+     */
+    @Deprecated
     public static GeoPoint stringToGeoPoint(String locationName) {
-        final double[] result = {0, 0};
-        final boolean[] success = {false};
-        
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        Handler handler = new Handler(Looper.getMainLooper());
-        
-        executor.execute(() -> {
-            try {
-                String encoded = URLEncoder.encode(locationName, StandardCharsets.UTF_8.name());
-                URL urlObj = new URL("https://nominatim.openstreetmap.org/search?q=" + 
-                    encoded + "&format=json&limit=1");
-                
-                HttpURLConnection conn = (HttpURLConnection) urlObj.openConnection();
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(10000);
-                conn.setRequestProperty("User-Agent", "MotoRider/1.0");
-                
-                try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(conn.getInputStream()))) {
-                    
-                    StringBuilder response = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        response.append(line);
-                    }
-                    
-                    GeoPoint parsed = parseGeocodingResponse(response.toString());
-                    if (parsed != null) {
-                        result[0] = parsed.getLatitude();
-                        result[1] = parsed.getLongitude();
-                        success[0] = true;
-                    }
-                } finally {
-                    conn.disconnect();
-                }
-            } catch (Exception e) {
-                android.util.Log.w("RouteUtils", "Geocoding failed for: " + locationName, e);
-            }
-            
-            handler.post(executor::shutdown);
-        });
-        
-        try {
-            executor.awaitTermination(15, java.util.concurrent.TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
-        if (success[0]) {
-            return new GeoPoint(result[0], result[1]);
-        }
-        
+        android.util.Log.w("RouteUtils", "stringToGeoPoint is deprecated and blocks the UI thread. Use geocodeLocation with a callback instead.");
         return null;
     }
     

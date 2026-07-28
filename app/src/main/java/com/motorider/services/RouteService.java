@@ -1,6 +1,7 @@
 package com.motorider.services;
 
 import com.motorider.models.Route;
+import com.motorider.models.RouteType;
 import com.motorider.models.Waypoint;
 import com.motorider.utils.RouteUtils;
 import org.osmdroid.util.GeoPoint;
@@ -8,30 +9,19 @@ import java.util.List;
 
 public class RouteService {
     
-    /**
-     * Calculate a motorcycle-friendly route with custom weights
-     * @param start Starting waypoint
-     * @param end Destination waypoint
-     * @param waypoints Intermediate waypoints
-     * @return Optimized motorcycle route
-     */
     public Route calculateMotorcycleRoute(Waypoint start, Waypoint end, List<Waypoint> waypoints) {
-        // Implementation of motorcycle-specific routing algorithm
-        // This would include custom weights for curvature, elevation, and road types
+        return calculateMotorcycleRoute(start, end, waypoints, RouteType.MOTORCYCLE);
+    }
+    
+    public Route calculateMotorcycleRoute(Waypoint start, Waypoint end, List<Waypoint> waypoints, RouteType routePreference) {
+        Route route = new Route(routePreference.getDisplayName() + " Route", waypoints);
         
-        Route route = new Route("Motorcycle Route", waypoints);
-        
-        // Calculate route metrics
-        calculateRouteMetrics(route);
+        calculateRouteMetrics(route, routePreference);
         
         return route;
     }
     
-    /**
-     * Apply motorcycle-specific weights to routing calculations
-     * @param route The route to optimize
-     */
-    private void calculateRouteMetrics(Route route) {
+    private void calculateRouteMetrics(Route route, RouteType routePreference) {
         List<Waypoint> waypoints = route.getWaypoints();
         if (waypoints == null || waypoints.isEmpty()) {
             return;
@@ -58,14 +48,16 @@ public class RouteService {
                 double segmentDistance = 6371000.0 * c;
                 totalDistance += segmentDistance;
                 
-                double speed = 60000.0;
+                double speed = 60000.0 * routePreference.getSpeedFactor();
                 totalDuration += segmentDistance / speed;
             }
         }
         
         route.setDistance(totalDistance / 1000.0);
         route.setDuration(totalDuration);
-        route.setCurvatureScore(RouteUtils.calculateCurvatureScore(waypoints));
+        
+        double baseCurvatureScore = RouteUtils.calculateCurvatureScore(waypoints);
+        route.setCurvatureScore(baseCurvatureScore * routePreference.getCurvatureWeight());
         route.setElevationGain(RouteUtils.calculateElevationGain(waypoints));
     }
 }
