@@ -11,6 +11,9 @@ public class Waypoint {
 
     public Waypoint(String name, GeoPoint location) {
         this.name = name;
+        if (location == null) {
+            throw new IllegalArgumentException("Location cannot be null");
+        }
         this.location = location;
     }
 

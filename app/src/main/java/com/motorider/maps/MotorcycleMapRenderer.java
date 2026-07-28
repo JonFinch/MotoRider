@@ -13,20 +13,20 @@ public class MotorcycleMapRenderer {
      * @param waypoints List of waypoints that make up the route
      */
     public void renderMotorcycleRoute(MapView mapView, List<GeoPoint> waypoints) {
-        // Create a polygon to represent the route
+        if (mapView == null || mapView.getOverlays() == null || waypoints == null) {
+            return;
+        }
+        
         Polygon routePolygon = new Polygon();
         
-        // Set the route points
         for (GeoPoint point : waypoints) {
             routePolygon.addPoint(point);
         }
         
-        // Customize the appearance for motorcycle routes
-        routePolygon.setFillColor(0x55003366); // Semi-transparent blue
-        routePolygon.setStrokeColor(0xFF003366); // Dark blue stroke
+        routePolygon.setFillColor(0x55003366);
+        routePolygon.setStrokeColor(0xFF003366);
         routePolygon.setStrokeWidth(8f);
         
-        // Add the route to the map
         mapView.getOverlays().add(routePolygon);
         mapView.invalidate();
     }

@@ -71,53 +71,76 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
         etEnd = contentView.findViewById(R.id.et_end);
         intermediateWaypointsContainer = contentView.findViewById(R.id.intermediate_waypoints);
         
+        if (etStart == null || etEnd == null || intermediateWaypointsContainer == null) {
+            Log.e(TAG, "Required views not found in layout");
+            return;
+        }
+        
         // Route type buttons
         ImageButton btnMotorcycle = contentView.findViewById(R.id.btn_motorcycle);
         ImageButton btnTruck = contentView.findViewById(R.id.btn_truck);
         ImageButton btnCar = contentView.findViewById(R.id.btn_car);
         ImageButton btnBike = contentView.findViewById(R.id.btn_bike);
         
-        btnMotorcycle.setOnClickListener(v -> selectRouteType(RouteType.MOTORCYCLE, btnMotorcycle, btnTruck, btnCar, btnBike));
-        btnTruck.setOnClickListener(v -> selectRouteType(RouteType.TRUCK, btnTruck, btnMotorcycle, btnCar, btnBike));
-        btnCar.setOnClickListener(v -> selectRouteType(RouteType.CAR, btnCar, btnMotorcycle, btnTruck, btnBike));
-        btnBike.setOnClickListener(v -> selectRouteType(RouteType.BIKE, btnBike, btnMotorcycle, btnTruck, btnCar));
+        if (btnMotorcycle != null) {
+            btnMotorcycle.setOnClickListener(v -> selectRouteType(RouteType.MOTORCYCLE, btnMotorcycle, btnTruck, btnCar, btnBike));
+        }
+        if (btnTruck != null) {
+            btnTruck.setOnClickListener(v -> selectRouteType(RouteType.TRUCK, btnTruck, btnMotorcycle, btnCar, btnBike));
+        }
+        if (btnCar != null) {
+            btnCar.setOnClickListener(v -> selectRouteType(RouteType.CAR, btnCar, btnMotorcycle, btnTruck, btnBike));
+        }
+        if (btnBike != null) {
+            btnBike.setOnClickListener(v -> selectRouteType(RouteType.BIKE, btnBike, btnMotorcycle, btnTruck, btnCar));
+        }
         
         // Select motorcycle by default
         selectRouteType(RouteType.MOTORCYCLE, btnMotorcycle, btnTruck, btnCar, btnBike);
         
         // Add waypoint button
-        ImageButton btnAddWaypoint = contentView.findViewById(R.id.btn_add_waypoint);
-        btnAddWaypoint.setOnClickListener(v -> addIntermediateWaypoint());
+        MaterialButton btnAddWaypoint = contentView.findViewById(R.id.btn_add_waypoint);
+        if (btnAddWaypoint != null) {
+            btnAddWaypoint.setOnClickListener(v -> addIntermediateWaypoint());
+        }
         
         // Plan route button
         MaterialButton btnPlanRoute = contentView.findViewById(R.id.btn_plan_route);
-        btnPlanRoute.setOnClickListener(v -> planRoute());
+        if (btnPlanRoute != null) {
+            btnPlanRoute.setOnClickListener(v -> planRoute());
+        }
         
         // Set location buttons
         ImageButton btnSetStart = contentView.findViewById(R.id.btn_set_start);
         ImageButton btnSetEnd = contentView.findViewById(R.id.btn_set_end);
         
-        btnSetStart.setOnClickListener(v -> {
-            // TODO: Implement map tap to set start location
-            Log.d(TAG, "Set start location tapped");
-        });
+        if (btnSetStart != null) {
+            btnSetStart.setOnClickListener(v -> {
+                Log.d(TAG, "Set start location tapped");
+            });
+        }
         
-        btnSetEnd.setOnClickListener(v -> {
-            // TODO: Implement map tap to set end location
-            Log.d(TAG, "Set end location tapped");
-        });
+        if (btnSetEnd != null) {
+            btnSetEnd.setOnClickListener(v -> {
+                Log.d(TAG, "Set end location tapped");
+            });
+        }
         
         // Remove buttons
         ImageButton btnRemoveStart = contentView.findViewById(R.id.btn_remove_start);
         ImageButton btnRemoveEnd = contentView.findViewById(R.id.btn_remove_end);
         
-        btnRemoveStart.setOnClickListener(v -> {
-            etStart.setText("");
-        });
+        if (btnRemoveStart != null) {
+            btnRemoveStart.setOnClickListener(v -> {
+                if (etStart != null) etStart.setText("");
+            });
+        }
         
-        btnRemoveEnd.setOnClickListener(v -> {
-            etEnd.setText("");
-        });
+        if (btnRemoveEnd != null) {
+            btnRemoveEnd.setOnClickListener(v -> {
+                if (etEnd != null) etEnd.setText("");
+            });
+        }
     }
     
     private void selectRouteType(RouteType type, ImageButton selected, ImageButton... others) {
@@ -187,41 +210,60 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
     
     private void planRoute() {
         try {
+            if (etStart == null || etEnd == null || intermediateWaypointsContainer == null) {
+                android.widget.Toast.makeText(requireContext(), 
+                    "Error: UI not initialized", android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
             String startName = etStart.getText().toString().trim();
             String endName = etEnd.getText().toString().trim();
             
             if (startName.isEmpty() && endName.isEmpty()) {
-                // Show error or use current location
                 android.widget.Toast.makeText(requireContext(), 
                     "Please enter at least start or end location", 
                     android.widget.Toast.LENGTH_SHORT).show();
                 return;
             }
             
-            // Create waypoints from input
             waypoints.clear();
             
+            GeoPoint startPoint = null;
             if (!startName.isEmpty()) {
-                Waypoint start = new Waypoint(startName, RouteUtils.stringToGeoPoint(startName));
-                waypoints.add(start);
-            }
-            
-            // Add intermediate waypoints
-            for (int i = 0; i < intermediateWaypointsContainer.getChildCount(); i++) {
-                MaterialCardView card = (MaterialCardView) intermediateWaypointsContainer.getChildAt(i);
-                LinearLayout layout = (LinearLayout) card.getChildAt(0);
-                EditText et = (EditText) layout.getChildAt(1);
-                String waypointName = et.getText().toString().trim();
-                
-                if (!waypointName.isEmpty()) {
-                    Waypoint waypoint = new Waypoint(waypointName, RouteUtils.stringToGeoPoint(waypointName));
-                    waypoints.add(waypoint);
+                startPoint = RouteUtils.stringToGeoPoint(startName);
+                if (startPoint != null) {
+                    waypoints.add(new Waypoint(startName, startPoint));
                 }
             }
             
+            for (int i = 0; i < intermediateWaypointsContainer.getChildCount(); i++) {
+                View child = intermediateWaypointsContainer.getChildAt(i);
+                if (child instanceof MaterialCardView) {
+                    MaterialCardView card = (MaterialCardView) child;
+                    View layout = card.getChildAt(0);
+                    if (layout instanceof LinearLayout) {
+                        View etView = ((LinearLayout) layout).getChildAt(1);
+                        if (etView instanceof EditText) {
+                            EditText et = (EditText) etView;
+                            String waypointName = et.getText().toString().trim();
+                            
+                            if (!waypointName.isEmpty()) {
+                                GeoPoint wpPoint = RouteUtils.stringToGeoPoint(waypointName);
+                                if (wpPoint != null) {
+                                    waypoints.add(new Waypoint(waypointName, wpPoint));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            GeoPoint endPoint = null;
             if (!endName.isEmpty()) {
-                Waypoint end = new Waypoint(endName, RouteUtils.stringToGeoPoint(endName));
-                waypoints.add(end);
+                endPoint = RouteUtils.stringToGeoPoint(endName);
+                if (endPoint != null) {
+                    waypoints.add(new Waypoint(endName, endPoint));
+                }
             }
             
             if (waypoints.size() < 2) {
@@ -231,22 +273,20 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
                 return;
             }
             
-            // Calculate route
             Waypoint start = waypoints.get(0);
             Waypoint end = waypoints.get(waypoints.size() - 1);
             List<Waypoint> intermediate = waypoints.subList(1, waypoints.size() - 1);
             
             Route route = routeService.calculateMotorcycleRoute(start, end, intermediate);
             
-            // Apply route type
-            route.setRouteType(selectedRouteType);
-            
-            // Notify listener
-            if (listener != null) {
-                listener.onRoutePlanned(route);
+            if (route != null) {
+                route.setRouteType(selectedRouteType);
+                
+                if (listener != null) {
+                    listener.onRoutePlanned(route);
+                }
             }
             
-            // Dismiss dialog
             dismiss();
             
             Log.d(TAG, "Route planned with " + waypoints.size() + " waypoints");
@@ -255,7 +295,7 @@ public class RoutePlanningDialogFragment extends androidx.fragment.app.DialogFra
             Log.e(TAG, "Error planning route", e);
             android.widget.Toast.makeText(requireContext(), 
                 "Error planning route: " + e.getMessage(), 
-                android.widget.LENGTH_LONG).show();
+                android.widget.Toast.LENGTH_LONG).show();
         }
     }
 }

@@ -1,14 +1,17 @@
 package com.motorider.services;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
+import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import com.motorider.R;
 import com.motorider.activities.MainActivity;
@@ -29,6 +32,14 @@ public class NavigationService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d(TAG, "NavigationService started");
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.FOREGROUND_SERVICE) 
+                    != PackageManager.PERMISSION_GRANTED) {
+                Log.e(TAG, "FOREGROUND_SERVICE permission not granted");
+                return START_NOT_STICKY;
+            }
+        }
         
         Notification notification = createNotification();
         startForeground(NOTIFICATION_ID, notification);

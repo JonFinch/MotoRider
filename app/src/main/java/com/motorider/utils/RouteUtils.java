@@ -1,7 +1,18 @@
 package com.motorider.utils;
 
+import android.os.Handler;
+import android.os.Looper;
 import com.motorider.models.Waypoint;
+import org.osmdroid.util.GeoPoint;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class RouteUtils {
     
@@ -45,11 +56,37 @@ public class RouteUtils {
      * @return Angle in degrees
      */
     private static double calculateAngle(Waypoint prev, Waypoint current, Waypoint next) {
-        // Simplified angle calculation
-        // In a real implementation, this would use vector mathematics
+        GeoPoint p = prev.getLocation();
+        GeoPoint c = current.getLocation();
+        GeoPoint n = next.getLocation();
         
-        // For now, return a sample value
-        return 45.0;
+        if (p == null || c == null || n == null) {
+            return 45.0;
+        }
+        
+        double lat1 = Math.toRadians(p.getLatitude());
+        double lon1 = Math.toRadians(p.getLongitude());
+        double lat2 = Math.toRadians(c.getLatitude());
+        double lon2 = Math.toRadians(c.getLongitude());
+        double lat3 = Math.toRadians(n.getLatitude());
+        double lon3 = Math.toRadians(n.getLongitude());
+        
+        double angle1 = Math.atan2(
+            Math.sin(lon1 - lon2) * Math.cos(lat1),
+            Math.cos(lat2) * Math.tan(lat1) - Math.sin(lat2) * Math.cos(lon1 - lon2)
+        );
+        
+        double angle2 = Math.atan2(
+            Math.sin(lon3 - lon2) * Math.cos(lat3),
+            Math.cos(lat2) * Math.tan(lat3) - Math.sin(lat2) * Math.cos(lon3 - lon2)
+        );
+        
+        double angle = Math.toDegrees(Math.abs(angle1 - angle2));
+        if (angle > 180.0) {
+            angle = 360.0 - angle;
+        }
+        
+        return angle;
     }
     
     /**
@@ -74,5 +111,77 @@ public class RouteUtils {
         }
         
         return elevationGain;
+    }
+
+    public static GeoPoint stringToGeoPoint(String locationName) {
+        final double[] result = {0, 0};
+        final boolean[] success = {false};
+        
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Handler handler = new Handler(Looper.getMainLooper());
+        
+        executor.execute(() -> {
+            try {
+                String encoded = URLEncoder.encode(locationName, StandardCharsets.UTF_8.name());
+                URL urlObj = new URL("https://nominatim.openstreetmap.org/search?q=" + 
+                    encoded + "&format=json&limit=1");
+                
+                HttpURLConnection conn = (HttpURLConnection) urlObj.openConnection();
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("User-Agent", "MotoRider/1.0");
+                
+                try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(conn.getInputStream()))) {
+                    
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        response.append(line);
+                    }
+                    
+                    String json = response.toString();
+                    if (json != null && json.startsWith("[{")) {
+                        int latIndex = json.indexOf("\"lat\":");
+                        int lonIndex = json.indexOf("\"lon\":");
+                        
+                        if (latIndex > 0 && lonIndex > 0) {
+                            int latStart = json.indexOf(':', latIndex) + 1;
+                            int latEnd = json.indexOf(',', latStart);
+                            if (latEnd < 0) latEnd = json.indexOf('}', latStart);
+                            
+                            int lonStart = json.indexOf(':', lonIndex) + 1;
+                            int lonEnd = json.indexOf(',', lonStart);
+                            if (lonEnd < 0) lonEnd = json.indexOf('}', lonStart);
+                            
+                            double lat = Double.parseDouble(json.substring(latStart, latEnd).trim());
+                            double lon = Double.parseDouble(json.substring(lonStart, lonEnd).trim());
+                            
+                            result[0] = lat;
+                            result[1] = lon;
+                            success[0] = true;
+                        }
+                    }
+                } finally {
+                    conn.disconnect();
+                }
+            } catch (Exception e) {
+                android.util.Log.w("RouteUtils", "Geocoding failed for: " + locationName, e);
+            }
+            
+            handler.post(executor::shutdown);
+        });
+        
+        try {
+            executor.awaitTermination(15, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        
+        if (success[0]) {
+            return new GeoPoint(result[0], result[1]);
+        }
+        
+        return null;
     }
 }

@@ -12,6 +12,9 @@ public class Route {
 
     public Route(String name, List<Waypoint> waypoints) {
         this.name = name;
+        if (waypoints == null) {
+            throw new IllegalArgumentException("Waypoints cannot be null");
+        }
         this.waypoints = waypoints;
     }
 
@@ -33,4 +36,9 @@ public class Route {
 
     public double getElevationGain() { return elevationGain; }
     public void setElevationGain(double elevationGain) { this.elevationGain = elevationGain; }
+
+    private RouteType routeType;
+
+    public RouteType getRouteType() { return routeType; }
+    public void setRouteType(RouteType routeType) { this.routeType = routeType; }
 }

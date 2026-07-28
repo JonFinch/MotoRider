@@ -3,7 +3,6 @@ package com.motorider.fragments;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.location.Location;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -18,7 +17,6 @@ import androidx.fragment.app.Fragment;
 
 import com.motorider.R;
 import com.motorider.maps.MotorcycleMapRenderer;
-import com.motorider.services.RouteService;
 import com.motorider.models.Route;
 import com.motorider.models.Waypoint;
 import com.motorider.utils.RouteUtils;
@@ -43,11 +41,9 @@ public class MapFragment extends Fragment {
     private MapView mapView;
     private MyLocationNewOverlay locationOverlay;
     private MotorcycleMapRenderer mapRenderer;
-    private RouteService routeService;
     private Button btnStartNavigation;
     private Button btnPlanRoute;
     private GeoPoint currentLocation;
-    private GeoPoint destinationLocation;
     private Route currentRoute;
     
     @Override
@@ -104,16 +100,30 @@ public class MapFragment extends Fragment {
             
             // Initialize location overlay
             locationOverlay = new MyLocationNewOverlay(mapView);
-            // Only enable location if permission is granted (permission request happens later)
-            if (ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) 
-                    == PackageManager.PERMISSION_GRANTED) {
-                locationOverlay.enableMyLocation();
+            locationOverlay.enableMyLocation();
+            locationOverlay.runOnFirstFix(new Runnable() {
+                @Override
+                public void run() {
+                    GeoPoint loc = locationOverlay.getMyLocation();
+                    if (loc != null) {
+                        currentLocation = loc;
+                        if (mapView.getController() != null) {
+                            requireActivity().runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    mapView.getController().setCenter(currentLocation);
+                                    mapView.getController().setZoom(15.0);
+                                }
+                            });
+                        }
+                    }
+                }
+            });
+            
+            if (mapView.getOverlays() != null) {
+                mapView.getOverlays().add(locationOverlay);
             }
             
-            mapView.getOverlays().add(locationOverlay);
-            
-            // Initialize route service and renderer
-            routeService = new RouteService();
             mapRenderer = new MotorcycleMapRenderer();
             
             Log.d(TAG, "MapView initialized with MAPNIK tile source");
@@ -140,7 +150,7 @@ public class MapFragment extends Fragment {
                 btnPlanRoute.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        planRoute();
+                        showRoutePlanningDialog();
                     }
                 });
             }
@@ -164,6 +174,34 @@ public class MapFragment extends Fragment {
         }
     }
     
+    private void showRoutePlanningDialog() {
+        try {
+            RoutePlanningDialogFragment dialog = RoutePlanningDialogFragment.newInstance(new RoutePlanningDialogFragment.OnRoutePlannedListener() {
+                @Override
+                public void onRoutePlanned(Route route) {
+                    currentRoute = route;
+                    List<GeoPoint> routePoints = new ArrayList<>();
+                    for (Waypoint waypoint : route.getWaypoints()) {
+                        routePoints.add(waypoint.getLocation());
+                    }
+                    if (mapRenderer != null && mapView != null) {
+                        mapRenderer.renderMotorcycleRoute(mapView, routePoints);
+                    }
+                    if (isAdded() && getContext() != null) {
+                        Toast.makeText(getContext(), 
+                            "Route: " + String.format("%.1f km", route.getDistance()) + 
+                            ", Duration: " + String.format("%.0f min", route.getDuration() / 60.0), 
+                            Toast.LENGTH_LONG).show();
+                    }
+                    Log.d(TAG, "Route displayed: " + route.getDistance() + " km");
+                }
+            });
+            dialog.show(getParentFragmentManager(), "routePlanning");
+        } catch (Exception e) {
+            Log.e(TAG, "Error showing route planning dialog", e);
+        }
+    }
+    
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, 
                                           @NonNull int[] grantResults) {
@@ -176,8 +214,10 @@ public class MapFragment extends Fragment {
                     }
                     Log.d(TAG, "Location permission granted");
                 } else {
-                    Toast.makeText(requireContext(), "Location permission is required for navigation", 
-                        Toast.LENGTH_LONG).show();
+                    if (isAdded() && getContext() != null) {
+                        Toast.makeText(getContext(), "Location permission is required for navigation", 
+                            Toast.LENGTH_LONG).show();
+                    }
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Error handling permission result", e);
@@ -185,60 +225,22 @@ public class MapFragment extends Fragment {
         }
     }
     
-    private void planRoute() {
-        try {
-            if (currentLocation == null) {
-                Toast.makeText(requireContext(), "Location not available yet. Please wait...", 
-                    Toast.LENGTH_LONG).show();
-                return;
-            }
-            
-            // Create a sample route for demonstration
-            Waypoint start = new Waypoint("Start", currentLocation);
-            Waypoint end = new Waypoint("Destination", new GeoPoint(40.7589, -73.9851)); // Times Square
-            List<Waypoint> waypoints = new ArrayList<>();
-            waypoints.add(start);
-            waypoints.add(end);
-            
-            // Calculate motorcycle route
-            Route route = routeService.calculateMotorcycleRoute(start, end, waypoints);
-            currentRoute = route;
-            
-            // Get route points for rendering
-            List<GeoPoint> routePoints = new ArrayList<>();
-            for (Waypoint waypoint : waypoints) {
-                routePoints.add(waypoint.getLocation());
-            }
-            
-            // Render the route on the map
-            if (mapRenderer != null && mapView != null) {
-                mapRenderer.renderMotorcycleRoute(mapView, routePoints);
-            }
-            
-            // Show route information
-            Toast.makeText(requireContext(), 
-                "Route planned: " + String.format("%.1f km", route.getDistance()) + 
-                ", Duration: " + String.format("%.0f min", route.getDuration() / 60.0), 
-                Toast.LENGTH_LONG).show();
-            
-            Log.d(TAG, "Route planned: " + route.getDistance() + " km");
-        } catch (Exception e) {
-            Log.e(TAG, "Error planning route", e);
-            Toast.makeText(requireContext(), "Error planning route: " + e.getMessage(), 
-                Toast.LENGTH_LONG).show();
-        }
-    }
+
     
     private void startNavigation() {
         try {
             if (currentRoute == null) {
-                Toast.makeText(requireContext(), "Please plan a route first", 
-                    Toast.LENGTH_SHORT).show();
+                if (isAdded() && getContext() != null) {
+                    Toast.makeText(getContext(), "Please plan a route first", 
+                        Toast.LENGTH_SHORT).show();
+                }
                 return;
             }
             
-            Toast.makeText(requireContext(), "Navigation started", 
-                Toast.LENGTH_SHORT).show();
+            if (isAdded() && getContext() != null) {
+                Toast.makeText(getContext(), "Navigation started", 
+                    Toast.LENGTH_SHORT).show();
+            }
             
             Log.d(TAG, "Navigation started");
         } catch (Exception e) {
@@ -265,6 +267,9 @@ public class MapFragment extends Fragment {
             if (mapView != null) {
                 mapView.onPause();
             }
+            if (locationOverlay != null) {
+                locationOverlay.disableMyLocation();
+            }
             Configuration.getInstance().save(requireContext(), 
                 requireContext().getSharedPreferences("osmdroid", Context.MODE_PRIVATE));
         } catch (Exception e) {
@@ -278,6 +283,12 @@ public class MapFragment extends Fragment {
         try {
             if (mapView != null) {
                 mapView.onDetach();
+            }
+            if (locationOverlay != null) {
+                locationOverlay.disableMyLocation();
+                if (mapView != null && mapView.getOverlays() != null) {
+                    mapView.getOverlays().remove(locationOverlay);
+                }
             }
         } catch (Exception e) {
             Log.e(TAG, "Error in onDestroyView", e);
