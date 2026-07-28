@@ -61,4 +61,80 @@ public class RouteUtilsTest {
         double gain = RouteUtils.calculateElevationGain(waypoints);
         assertEquals("Elevation gain should be 0.0 meters", 0.0, gain, 0.01);
     }
+
+    @Test
+    public void testParseGeocodingResponseWithQuotedValues() {
+        // Nominatim API returns lat/lon as quoted strings: "lat":"51.4406157"
+        String jsonResponse = "[{\"lat\":\"51.4406157\",\"lon\":\"-0.1278\"}]";
+        
+        GeoPoint result = RouteUtils.parseGeocodingResponse(jsonResponse);
+        
+        assertNotNull("Should parse valid JSON response", result);
+        assertEquals("Latitude should match", 51.4406157, result.getLatitude(), 0.0001);
+        assertEquals("Longitude should match", -0.1278, result.getLongitude(), 0.0001);
+    }
+
+    @Test
+    public void testParseGeocodingResponseWithNumericValues() {
+        // Some APIs may return numeric values without quotes
+        String jsonResponse = "[{\"lat\":51.4406157,\"lon\":-0.1278}]";
+        
+        GeoPoint result = RouteUtils.parseGeocodingResponse(jsonResponse);
+        
+        assertNotNull("Should parse valid JSON response", result);
+        assertEquals("Latitude should match", 51.4406157, result.getLatitude(), 0.0001);
+        assertEquals("Longitude should match", -0.1278, result.getLongitude(), 0.0001);
+    }
+
+    @Test
+    public void testParseGeocodingResponseMixedQuotedAndNumeric() {
+        // Nominatim sometimes returns lat as quoted string and lon as numeric
+        String jsonResponse = "[{\"lat\":\"51.4406157\",\"lon\":-0.1278}]";
+        
+        GeoPoint result = RouteUtils.parseGeocodingResponse(jsonResponse);
+        
+        assertNotNull("Should parse valid JSON response", result);
+        assertEquals("Latitude should match", 51.4406157, result.getLatitude(), 0.0001);
+        assertEquals("Longitude should match", -0.1278, result.getLongitude(), 0.0001);
+    }
+
+    @Test
+    public void testParseGeocodingResponseInvalidJson() {
+        String jsonResponse = "invalid json";
+        
+        GeoPoint result = RouteUtils.parseGeocodingResponse(jsonResponse);
+        
+        assertNull("Should return null for invalid JSON", result);
+    }
+
+    @Test
+    public void testParseGeocodingResponseMissingFields() {
+        String jsonResponse = "[{\"name\":\"Test\"}]";
+        
+        GeoPoint result = RouteUtils.parseGeocodingResponse(jsonResponse);
+        
+        assertNull("Should return null when lat/lon missing", result);
+    }
+
+    @Test
+    public void testParseGeocodingResponseMalformedNumbers() {
+        // Simulates the original bug: quoted string that can't be parsed as double
+        String jsonResponse = "[{\"lat\":\"abc\",\"lon\":\"def\"}]";
+        
+        GeoPoint result = RouteUtils.parseGeocodingResponse(jsonResponse);
+        
+        assertNull("Should return null for unparseable numbers", result);
+    }
+
+    @Test
+    public void testParseGeocodingResponseEmptyString() {
+        GeoPoint result = RouteUtils.parseGeocodingResponse("");
+        assertNull("Should return null for empty string", result);
+    }
+
+    @Test
+    public void testParseGeocodingResponseNull() {
+        GeoPoint result = RouteUtils.parseGeocodingResponse(null);
+        assertNull("Should return null for null input", result);
+    }
 }

@@ -140,35 +140,11 @@ public class RouteUtils {
                         response.append(line);
                     }
                     
-                    String json = response.toString();
-                    if (json != null && json.startsWith("[{")) {
-                        int latIndex = json.indexOf("\"lat\":");
-                        int lonIndex = json.indexOf("\"lon\":");
-                        
-                        if (latIndex > 0 && lonIndex > 0) {
-                            int latStart = json.indexOf(':', latIndex) + 1;
-                            int latEnd = json.indexOf(',', latStart);
-                            if (latEnd < 0) latEnd = json.indexOf('}', latStart);
-                            
-                            int lonStart = json.indexOf(':', lonIndex) + 1;
-                            int lonEnd = json.indexOf(',', lonStart);
-                            if (lonEnd < 0) lonEnd = json.indexOf('}', lonStart);
-                            
-                            String latStr = json.substring(latStart, latEnd).trim();
-                            String lonStr = json.substring(lonStart, lonEnd).trim();
-                            
-                            if (latStr.startsWith("\"")) latStr = latStr.substring(1);
-                            if (latStr.endsWith("\"")) latStr = latStr.substring(0, latStr.length() - 1);
-                            if (lonStr.startsWith("\"")) lonStr = lonStr.substring(1);
-                            if (lonStr.endsWith("\"")) lonStr = lonStr.substring(0, lonStr.length() - 1);
-                            
-                            double lat = Double.parseDouble(latStr);
-                            double lon = Double.parseDouble(lonStr);
-                            
-                            result[0] = lat;
-                            result[1] = lon;
-                            success[0] = true;
-                        }
+                    GeoPoint parsed = parseGeocodingResponse(response.toString());
+                    if (parsed != null) {
+                        result[0] = parsed.getLatitude();
+                        result[1] = parsed.getLongitude();
+                        success[0] = true;
                     }
                 } finally {
                     conn.disconnect();
@@ -191,5 +167,40 @@ public class RouteUtils {
         }
         
         return null;
+    }
+    
+    public static GeoPoint parseGeocodingResponse(String jsonResponse) {
+        if (jsonResponse == null || !jsonResponse.startsWith("[{")) {
+            return null;
+        }
+        
+        int latIndex = jsonResponse.indexOf("\"lat\":");
+        int lonIndex = jsonResponse.indexOf("\"lon\":");
+        
+        if (latIndex <= 0 || lonIndex <= 0) {
+            return null;
+        }
+        
+        try {
+            int latStart = jsonResponse.indexOf(':', latIndex) + 1;
+            int latEnd = jsonResponse.indexOf(',', latStart);
+            if (latEnd < 0) latEnd = jsonResponse.indexOf('}', latStart);
+            
+            int lonStart = jsonResponse.indexOf(':', lonIndex) + 1;
+            int lonEnd = jsonResponse.indexOf(',', lonStart);
+            if (lonEnd < 0) lonEnd = jsonResponse.indexOf('}', lonStart);
+            
+            String latStr = jsonResponse.substring(latStart, latEnd).trim();
+            String lonStr = jsonResponse.substring(lonStart, lonEnd).trim();
+            
+            if (latStr.startsWith("\"")) latStr = latStr.substring(1);
+            if (latStr.endsWith("\"")) latStr = latStr.substring(0, latStr.length() - 1);
+            if (lonStr.startsWith("\"")) lonStr = lonStr.substring(1);
+            if (lonStr.endsWith("\"")) lonStr = lonStr.substring(0, lonStr.length() - 1);
+            
+            return new GeoPoint(Double.parseDouble(latStr), Double.parseDouble(lonStr));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }
