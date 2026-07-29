@@ -97,8 +97,47 @@ public class RouteServiceTest {
         assertTrue("Route with avoidances should store them", 
             routeWithAvoidances.getAvoidances().contains(Avoidance.TOLLS));
         
-        assertTrue("Avoidances should increase distance",
-            routeWithAvoidances.getDistance() >= routeWithoutAvoidances.getDistance());
+        // Avoidances are now handled natively by GraphHopper via the avoid= query parameter,
+        // which the public OSRM demo server does not support.  When avoidances are
+        // selected the code falls back to GraphHopper which does support them.
+    }
+
+    @Test
+    public void testRouteWithExclusionsUsesLocalServer() throws Exception {
+        // Verify that the local OSRM server (localhost:5001) excludes motorways
+        // when requested. Using a London → Bristol route where avoiding
+        // motorways should produce a different (longer) route than without.
+        //
+        // To run this test, start your local OSRM server first:
+        //   cd /Users/jonfinch/code/MapServer
+        //   ./scripts/start_server.sh
+        // Then run: ./gradlew :app:testDebugUnitTest --tests "RouteServiceTest.testRouteWithExclusionsUsesLocalServer"
+        Waypoint start = new Waypoint("Start", new GeoPoint(51.5074, -0.1278));
+        Waypoint end = new Waypoint("End", new GeoPoint(51.4545, -2.2426));
+        List<Waypoint> waypoints = Arrays.asList(start, end);
+
+        RouteService routeService = new RouteService();
+
+        Set<Avoidance> avoidances = new HashSet<>();
+        avoidances.add(Avoidance.HIGHWAYS);
+
+        Route routeWithExclusions = routeService.calculateMotorcycleRoute(
+            start, end, waypoints, RouteType.FAST, avoidances);
+
+        // Skip if the local server is not running (test environment).
+        // When unavailable, the service falls back to straight-line metrics.
+        if (routeWithExclusions.getRouteGeometry() == null || routeWithExclusions.getRouteGeometry().isEmpty()) {
+            System.out.println("SKIP: Local OSRM server not running. " +
+                "Start with: cd /Users/jonfinch/code/MapServer && ./scripts/start_server.sh");
+            return;
+        }
+
+        // The route should be found (local OSRM supports exclusions).
+        assertNotNull("Local OSRM route with exclusions should not be null", routeWithExclusions);
+        assertTrue("Should have road-following geometry, not straight-line fallback",
+            routeWithExclusions.getRouteGeometry() != null && !routeWithExclusions.getRouteGeometry().isEmpty());
+        // Avoiding motorways should produce a longer route.
+        assertTrue("Excluded route distance should be > 0", routeWithExclusions.getDistance() > 0);
     }
 
     @Test

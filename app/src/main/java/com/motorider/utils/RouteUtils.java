@@ -1,6 +1,8 @@
 package com.motorider.utils;
 
 import com.motorider.models.Waypoint;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.osmdroid.util.GeoPoint;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -192,91 +194,101 @@ public class RouteUtils {
         }
     }
 
+    /**
+     * Parse an OSRM {@code /route/v1} response (requested with
+     * {@code geometries=geojson&overview=full}) into the full road-following
+     * geometry plus the route-level distance and duration.
+     *
+     * <p>The response is parsed with a real JSON parser rather than by scanning
+     * the raw string. This ensures the entire nested {@code coordinates} array is
+     * read and that the distance/duration come from the top-level route object
+     * (not from the first per-leg summary, which previously produced wrong
+     * totals for multi-waypoint routes).</p>
+     *
+     * @param jsonResponse the raw OSRM JSON body
+     * @return the parsed result, or {@code null} if the response is missing,
+     *         not {@code "Ok"}, or contains no usable geometry
+     */
     public static OsrmResult parseOsrmResponse(String jsonResponse) {
-        if (jsonResponse == null || !jsonResponse.contains("\"code\":\"Ok\"")) {
+        if (jsonResponse == null || jsonResponse.isEmpty()) {
             return null;
         }
 
         try {
-            int coordsStart = jsonResponse.indexOf("\"coordinates\":");
-            if (coordsStart < 0) return null;
-            coordsStart = jsonResponse.indexOf('[', coordsStart);
-            int coordsEnd = jsonResponse.indexOf(']', coordsStart);
-            String coordsArray = jsonResponse.substring(coordsStart + 1, coordsEnd);
+            JSONObject root = new JSONObject(jsonResponse);
 
-            int distanceIdx = jsonResponse.indexOf("\"distance\":");
-            int durationIdx = jsonResponse.indexOf("\"duration\":");
-
-            if (distanceIdx < 0 || durationIdx < 0) return null;
-
-            int distStart = jsonResponse.indexOf(':', distanceIdx) + 1;
-            int distEnd = jsonResponse.indexOf(',', distStart);
-            if (distEnd < 0) distEnd = jsonResponse.indexOf('}', distStart);
-
-            int durStart = jsonResponse.indexOf(':', durationIdx) + 1;
-            int durEnd = jsonResponse.indexOf(',', durStart);
-            if (durEnd < 0) durEnd = jsonResponse.indexOf('}', durStart);
-
-            double distance = Double.parseDouble(jsonResponse.substring(distStart, distEnd).trim());
-            double duration = Double.parseDouble(jsonResponse.substring(durStart, durEnd).trim());
-
-            List<GeoPoint> geometry = new java.util.ArrayList<>();
-            int searchPos = 0;
-            while (true) {
-                int bracketStart = coordsArray.indexOf('[', searchPos);
-                if (bracketStart < 0) break;
-                int bracketEnd = coordsArray.indexOf(']', bracketStart);
-                if (bracketEnd < 0) break;
-
-                String coordPair = coordsArray.substring(bracketStart + 1, bracketEnd);
-                int commaPos = coordPair.indexOf(',');
-                if (commaPos > 0) {
-                    double lon = Double.parseDouble(coordPair.substring(0, commaPos).trim());
-                    double lat = Double.parseDouble(coordPair.substring(commaPos + 1).trim());
-                    geometry.add(new GeoPoint(lat, lon));
-                }
-                searchPos = bracketEnd + 1;
+            // OSRM signals success with "code":"Ok"; anything else (NoRoute,
+            // InvalidUrl, etc.) means there is no route to draw.
+            if (!"Ok".equals(root.optString("code"))) {
+                return null;
             }
 
-            if (geometry.isEmpty()) return null;
-            return new OsrmResult(geometry, distance, duration);
+            JSONArray routes = root.optJSONArray("routes");
+            if (routes == null || routes.length() == 0) {
+                return null;
+            }
+
+            JSONObject route = routes.getJSONObject(0);
+
+            // Route-level totals (metres / seconds).
+            double distance = route.optDouble("distance", 0.0);
+            double duration = route.optDouble("duration", 0.0);
+
+            JSONObject geometry = route.optJSONObject("geometry");
+            if (geometry == null) {
+                return null;
+            }
+
+            // GeoJSON LineString: [[lon, lat], [lon, lat], ...]
+            JSONArray coordinates = geometry.optJSONArray("coordinates");
+            if (coordinates == null || coordinates.length() == 0) {
+                return null;
+            }
+
+            List<GeoPoint> points = new java.util.ArrayList<>(coordinates.length());
+            for (int i = 0; i < coordinates.length(); i++) {
+                JSONArray pair = coordinates.optJSONArray(i);
+                if (pair == null || pair.length() < 2) {
+                    continue;
+                }
+                double lon = pair.getDouble(0);
+                double lat = pair.getDouble(1);
+                points.add(new GeoPoint(lat, lon));
+            }
+
+            if (points.isEmpty()) {
+                return null;
+            }
+
+            return new OsrmResult(points, distance, duration);
         } catch (Exception e) {
-            android.util.Log.w("RouteUtils", "Failed to parse OSRM response", e);
+            try { android.util.Log.w("RouteUtils", "Failed to parse OSRM response", e); } catch (Exception ignored) {}
             return null;
         }
     }
 
     public static GeoPoint parseGeocodingResponse(String jsonResponse) {
-        if (jsonResponse == null || !jsonResponse.startsWith("[{")) {
+        if (jsonResponse == null || jsonResponse.isEmpty()) {
             return null;
         }
-        
-        int latIndex = jsonResponse.indexOf("\"lat\":");
-        int lonIndex = jsonResponse.indexOf("\"lon\":");
-        
-        if (latIndex <= 0 || lonIndex <= 0) {
-            return null;
-        }
-        
+
         try {
-            int latStart = jsonResponse.indexOf(':', latIndex) + 1;
-            int latEnd = jsonResponse.indexOf(',', latStart);
-            if (latEnd < 0) latEnd = jsonResponse.indexOf('}', latStart);
-            
-            int lonStart = jsonResponse.indexOf(':', lonIndex) + 1;
-            int lonEnd = jsonResponse.indexOf(',', lonStart);
-            if (lonEnd < 0) lonEnd = jsonResponse.indexOf('}', lonStart);
-            
-            String latStr = jsonResponse.substring(latStart, latEnd).trim();
-            String lonStr = jsonResponse.substring(lonStart, lonEnd).trim();
-            
-            if (latStr.startsWith("\"")) latStr = latStr.substring(1);
-            if (latStr.endsWith("\"")) latStr = latStr.substring(0, latStr.length() - 1);
-            if (lonStr.startsWith("\"")) lonStr = lonStr.substring(1);
-            if (lonStr.endsWith("\"")) lonStr = lonStr.substring(0, lonStr.length() - 1);
-            
-            return new GeoPoint(Double.parseDouble(latStr), Double.parseDouble(lonStr));
-        } catch (NumberFormatException e) {
+            JSONArray results = new JSONArray(jsonResponse);
+            if (results.length() == 0) {
+                return null;
+            }
+
+            JSONObject first = results.getJSONObject(0);
+            if (!first.has("lat") || !first.has("lon")) {
+                return null;
+            }
+
+            // Nominatim returns lat/lon as quoted strings; getDouble coerces
+            // both quoted-string and bare-numeric forms.
+            double lat = first.getDouble("lat");
+            double lon = first.getDouble("lon");
+            return new GeoPoint(lat, lon);
+        } catch (Exception e) {
             return null;
         }
     }

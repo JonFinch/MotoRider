@@ -12,7 +12,6 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +20,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class RouteService {
+
+    /** Local OSRM server URL (supports exclusions). */
+    private static final String LOCAL_OSRM_URL = "http://localhost:5001";
+
+    /** Public OSRM demo server URL (does not support exclusions). */
+    private static final String PUBLIC_OSRM_URL = "https://router.project-osrm.org";
 
     public interface RouteCalculationCallback {
         void onRouteCalculated(Route route);
@@ -88,30 +93,53 @@ public class RouteService {
                 }
             }
 
-            String urlStr = "https://router.project-osrm.org/route/v1/driving/" +
+            // Use local OSRM server when exclusions are selected (it supports them).
+            // Use public OSRM when no exclusions (it doesn't support them).
+            String baseUrl = (avoidances != null && !avoidances.isEmpty())
+                    ? LOCAL_OSRM_URL : PUBLIC_OSRM_URL;
+
+            String excludeParam = buildExcludeParam(avoidances);
+
+            StringBuilder query = new StringBuilder("geometries=geojson&overview=full&alternatives=false&steps=false");
+            if (!excludeParam.isEmpty()) {
+                query.append("&exclude=").append(excludeParam);
+            }
+
+            String urlStr = baseUrl + "/route/v1/driving/" +
                 coords.toString() +
-                "?geometries=geojson&overview=full&alternatives=false&steps=false";
+                "?" + query;
 
             HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
             conn.setConnectTimeout(10000);
             conn.setReadTimeout(15000);
             conn.setRequestProperty("User-Agent", "MotoRider/1.0");
 
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
+            try {
+                int responseCode = conn.getResponseCode();
+                boolean success = responseCode >= 200 && responseCode < 300;
+                java.io.InputStream stream = success ? conn.getInputStream() : conn.getErrorStream();
+
                 StringBuilder response = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    response.append(line);
+                if (stream != null) {
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            response.append(line);
+                        }
+                    }
                 }
 
-                RouteUtils.OsrmResult osrm = RouteUtils.parseOsrmResponse(response.toString());
-                if (osrm != null) {
-                    route.setRouteGeometry(osrm.geometry);
-                    route.setDistance(osrm.distance / 1000.0);
-                    route.setDuration(osrm.duration);
-                    applyAvoidancePenalty(route);
-                    calculateCurvatureAndElevation(route, routePreference);
-                    return route;
+                if (!success) {
+                    try { android.util.Log.w("RouteService", "OSRM returned HTTP " + responseCode + ": " + response); } catch (Exception ignored) {}
+                } else {
+                    RouteUtils.OsrmResult osrm = RouteUtils.parseOsrmResponse(response.toString());
+                    if (osrm != null && osrm.geometry != null && !osrm.geometry.isEmpty()) {
+                        route.setRouteGeometry(osrm.geometry);
+                        route.setDistance(osrm.distance / 1000.0);
+                        route.setDuration(osrm.duration);
+                        calculateCurvatureAndElevation(route, routePreference);
+                        return route;
+                    }
                 }
             } finally {
                 conn.disconnect();
@@ -138,14 +166,35 @@ public class RouteService {
         return all;
     }
 
-    private void applyAvoidancePenalty(Route route) {
-        Set<Avoidance> avoidances = route.getAvoidances();
-        if (avoidances != null && !avoidances.isEmpty()) {
-            double penaltyPerItem = 0.05 * avoidances.size();
-            double penalty = Math.min(penaltyPerItem, 0.25);
-            route.setDistance(route.getDistance() * (1.0 + penalty));
-            route.setDuration(route.getDuration() * (1.0 + penalty));
+    /**
+     * Map the app's {@link Avoidance} enum values to OSRM's {@code exclude=}
+     * query parameter class values.
+     *
+     * <p>OSRM accepts: motorway, toll, ferry.</p>
+     */
+    private String buildExcludeParam(Set<Avoidance> avoidances) {
+        if (avoidances == null || avoidances.isEmpty()) {
+            return "";
         }
+
+        List<String> classes = new ArrayList<>();
+        for (Avoidance a : avoidances) {
+            switch (a) {
+                case HIGHWAYS:
+                    classes.add("motorway");
+                    break;
+                case TOLLS:
+                    classes.add("toll");
+                    break;
+                case FERRIES:
+                    classes.add("ferry");
+                    break;
+                case UNPAVED_ROADS:
+                case NARROW_ROADS:
+                    break;
+            }
+        }
+        return String.join(",", classes);
     }
 
     private void calculateCurvatureAndElevation(Route route, RouteType routePreference) {
@@ -191,7 +240,6 @@ public class RouteService {
 
         route.setDistance(totalDistance / 1000.0);
         route.setDuration(totalDuration);
-        applyAvoidancePenalty(route);
         calculateCurvatureAndElevation(route, routePreference);
     }
 }

@@ -140,6 +140,69 @@ public class RouteUtilsTest {
     }
 
     @Test
+    public void testParseOsrmResponseWithRealData() {
+        // Simulate a real OSRM response with nested coordinates array
+        String jsonResponse = "{\"code\":\"Ok\",\"routes\":[{\"geometry\":{\"coordinates\":[[-0.1278,51.5074],[-0.1270,51.5075],[-0.1262,51.5076],[2.3522,48.8566]],\"type\":\"LineString\"},\"weight\":37553.9,\"duration\":43265.6,\"distance\":620363.5}],\"waypoints\":[{\"hint\":\"hint1\",\"location\":[-0.127965,51.507478],\"name\":\"\",\"distance\":14.36820005},{\"hint\":\"hint2\",\"location\":[2.352316,48.857243],\"name\":\"\",\"distance\":72.01081235}]}";
+
+        RouteUtils.OsrmResult result = RouteUtils.parseOsrmResponse(jsonResponse);
+
+        assertNotNull("Should parse OSRM response", result);
+        assertNotNull("Geometry should not be null", result.geometry);
+        assertEquals("Should have 4 geometry points", 4, result.geometry.size());
+        assertEquals("First point longitude", -0.1278, result.geometry.get(0).getLongitude(), 0.0001);
+        assertEquals("First point latitude", 51.5074, result.geometry.get(0).getLatitude(), 0.0001);
+        assertEquals("Last point longitude", 2.3522, result.geometry.get(3).getLongitude(), 0.0001);
+        assertEquals("Last point latitude", 48.8566, result.geometry.get(3).getLatitude(), 0.0001);
+        assertEquals("Distance in meters", 620363.5, result.distance, 0.1);
+        assertEquals("Duration in seconds", 43265.6, result.duration, 0.1);
+    }
+
+    @Test
+    public void testParseOsrmResponseNestedCoordinates() {
+        // Test that nested coordinate arrays are fully parsed, not truncated at first ]
+        String jsonResponse = "{\"code\":\"Ok\",\"routes\":[{\"geometry\":{\"coordinates\":[[1.0,2.0],[3.0,4.0],[5.0,6.0],[7.0,8.0],[9.0,10.0],[11.0,12.0],[13.0,14.0],[15.0,16.0]],\"type\":\"LineString\"},\"weight\":100.0,\"duration\":60.0,\"distance\":500.0}],\"waypoints\":[]}";
+
+        RouteUtils.OsrmResult result = RouteUtils.parseOsrmResponse(jsonResponse);
+
+        assertNotNull("Should parse OSRM response", result);
+        assertEquals("Should have all 8 coordinate points, not just 1", 8, result.geometry.size());
+    }
+
+    @Test
+    public void testParseOsrmResponseUsesRouteLevelDistance() {
+        // Multi-leg response: the FIRST "distance"/"duration" in the JSON belong
+        // to a per-leg summary (250.0 / 30.0). The parser must instead report the
+        // route-level totals (500.0 / 60.0).
+        String jsonResponse = "{\"code\":\"Ok\",\"routes\":[{\"geometry\":{\"coordinates\":[[1.0,2.0],[3.0,4.0],[5.0,6.0]],\"type\":\"LineString\"},"
+            + "\"legs\":[{\"steps\":[],\"summary\":\"\",\"weight\":50.0,\"duration\":30.0,\"distance\":250.0},"
+            + "{\"steps\":[],\"summary\":\"\",\"weight\":50.0,\"duration\":30.0,\"distance\":250.0}],"
+            + "\"weight_name\":\"routability\",\"weight\":100.0,\"duration\":60.0,\"distance\":500.0}],\"waypoints\":[]}";
+
+        RouteUtils.OsrmResult result = RouteUtils.parseOsrmResponse(jsonResponse);
+
+        assertNotNull("Should parse OSRM response", result);
+        assertEquals("Should have all 3 geometry points", 3, result.geometry.size());
+        assertEquals("Distance should be the route total, not the first leg", 500.0, result.distance, 0.1);
+        assertEquals("Duration should be the route total, not the first leg", 60.0, result.duration, 0.1);
+    }
+
+    @Test
+    public void testParseOsrmResponseNullAndEmpty() {
+        assertNull("Should return null for null input", RouteUtils.parseOsrmResponse(null));
+        assertNull("Should return null for empty input", RouteUtils.parseOsrmResponse(""));
+        assertNull("Should return null for malformed JSON", RouteUtils.parseOsrmResponse("not json"));
+    }
+
+    @Test
+    public void testParseOsrmResponseFailureCode() {
+        String jsonResponse = "{\"code\":\"NoRoute\",\"routes\":[],\"waypoints\":[]}";
+
+        RouteUtils.OsrmResult result = RouteUtils.parseOsrmResponse(jsonResponse);
+
+        assertNull("Should return null for failed routing", result);
+    }
+
+    @Test
     public void testGeocodingCallbackIsNullSafe() {
         // Test that geocodeLocation handles null callback gracefully
         // Uses a short timeout to avoid hanging in test environments
