@@ -46,7 +46,7 @@ public class MapFragment extends Fragment {
     private Button btnPlanRoute;
     private GeoPoint currentLocation;
     private Route currentRoute;
-    
+
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
@@ -66,7 +66,7 @@ public class MapFragment extends Fragment {
             return inflater.inflate(R.layout.fragment_map, container, false);
         }
     }
-
+    
     private void initializeMapView(View view) {
         try {
             mapView = view.findViewById(R.id.mapview);
@@ -79,6 +79,15 @@ public class MapFragment extends Fragment {
             
             // Set tile source to OpenStreetMap
             mapView.setTileSource(TileSourceFactory.MAPNIK);
+            
+            // Enable zoom gestures and multi-touch for pinch-to-zoom
+            mapView.setMultiTouchControls(true);
+            
+            // Disable built-in zoom controls to prevent overlap with Android bar
+            mapView.setBuiltInZoomControls(false);
+            
+            // Disable built-in zoom controls to prevent overlap with Android bar
+            mapView.setBuiltInZoomControls(false);
             
             // Set initial zoom level (check controller is available)
             if (mapView.getController() != null) {
@@ -230,7 +239,7 @@ public class MapFragment extends Fragment {
     
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, 
-                                          @NonNull int[] grantResults) {
+                                           @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
             try {
@@ -250,8 +259,6 @@ public class MapFragment extends Fragment {
             }
         }
     }
-    
-
     
     private void startNavigation() {
         try {
