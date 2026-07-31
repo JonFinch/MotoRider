@@ -17,6 +17,5 @@
         <item name="android:navigationBarColor">@color/surface</item>
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
-        <item name="materialAlertDialogTheme">@style/Theme.MotoRider.Dialog</item>
     </style>
 </resources>
