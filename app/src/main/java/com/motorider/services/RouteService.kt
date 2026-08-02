@@ -62,7 +62,7 @@ class RouteService {
         allPoints.add(start.location)
         if (waypoints != null) {
             for (wp in waypoints) {
-                if (wp.location !== start.location && wp.location !== end.location) {
+                if (wp.location != start.location && wp.location != end.location) {
                     allPoints.add(wp.location)
                 }
             }
@@ -130,7 +130,7 @@ class RouteService {
         all.add(start)
         if (waypoints != null) {
             for (wp in waypoints) {
-                if (wp !== start && wp !== end && !all.contains(wp)) {
+                if (wp != start && wp != end && !all.contains(wp)) {
                     all.add(wp)
                 }
             }
@@ -188,7 +188,7 @@ class RouteService {
                 val segmentDistance = 6371000.0 * c
                 totalDistance += segmentDistance
 
-                val speed = 60000.0 * routePreference.getSpeedFactor()
+                val speed = 60.0 * routePreference.getSpeedFactor()
                 totalDuration += segmentDistance / speed
             }
         }

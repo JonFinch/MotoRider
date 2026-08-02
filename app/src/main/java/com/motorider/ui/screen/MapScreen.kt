@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -58,14 +59,14 @@ fun MapScreen() {
     var currentScreen by remember { mutableStateOf(Screen.Plan) }
     val scope = rememberCoroutineScope()
 
-    var routeInfoVisible by remember { mutableStateOf(false) }
+    var routeInfoVisible by rememberSaveable { mutableStateOf(false) }
     var isGeocoding by remember { mutableStateOf(false) }
 
-    var lastStartText by remember { mutableStateOf("") }
-    var lastEndText by remember { mutableStateOf("") }
-    var lastIntermediates by remember { mutableStateOf<List<String>>(emptyList()) }
-    var lastLegPrefs by remember { mutableStateOf<List<RouteType>>(emptyList()) }
-    var lastAvoidances by remember { mutableStateOf<Set<Avoidance>>(emptySet()) }
+    var lastStartText by rememberSaveable { mutableStateOf("") }
+    var lastEndText by rememberSaveable { mutableStateOf("") }
+    var lastIntermediates by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    var lastLegPrefs by rememberSaveable { mutableStateOf<List<RouteType>>(emptyList()) }
+    var lastAvoidances by rememberSaveable { mutableStateOf<Set<Avoidance>>(emptySet()) }
 
     LaunchedEffect(selectedRouteIndex, currentRoutes) {
         val route = currentRoutes.getOrNull(selectedRouteIndex) ?: return@LaunchedEffect
@@ -347,12 +348,12 @@ private fun BoxScope.PlanPanel(
                 AssistChip(
                     onClick = { showPreferenceDialog = true },
                     label = { Text("Curvature") },
-                    leadingIcon = { Icon(Icons.Outlined.Timeline, null, Modifier.size(16.dp)) }
+                    leadingIcon = { Icon(imageVector = Icons.Outlined.Timeline, contentDescription = null, modifier = Modifier.size(16.dp)) }
                 )
                 AssistChip(
                     onClick = { showAvoidanceDialog = true },
                     label = { Text(if (selectedAvoidances.isEmpty()) "Avoidances" else "Avoidances (${selectedAvoidances.size})") },
-                    leadingIcon = { Icon(Icons.Outlined.Shield, null, Modifier.size(16.dp)) }
+                    leadingIcon = { Icon(imageVector = Icons.Outlined.Shield, contentDescription = null, modifier = Modifier.size(16.dp)) }
                 )
                 IconButton(onClick = { intermediates = intermediates + "" }) {
                     Icon(Icons.Default.Add, "Add via", tint = BrandBlue)
@@ -677,8 +678,11 @@ private fun RouteInfoCard(
             if (routes.size > 1) {
                 Row(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     routes.forEachIndexed { i, _ ->
-                        FilterChip(i == selectedIndex, { onSelectRoute(i) },
-                            label = { Text(if (i == 0) "Route 1" else "Alt ${i + 1}", fontSize = 12.sp) })
+                FilterChip(
+                    selected = i == selectedIndex,
+                    onClick = { onSelectRoute(i) },
+                    label = { Text(if (i == 0) "Route 1" else "Alt ${i + 1}", fontSize = 12.sp) }
+                )
                     }
                 }
             }
