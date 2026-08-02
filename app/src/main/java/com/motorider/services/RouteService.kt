@@ -23,30 +23,9 @@ class RouteService {
     }
 
     interface RouteCalculationCallback {
-        fun onRouteCalculated(route: Route)
+        fun onRouteCalculated(routes: List<Route>)
         fun onError(error: String)
     }
-
-    fun calculateMotorcycleRoute(
-        start: Waypoint,
-        end: Waypoint,
-        waypoints: List<Waypoint>? = null
-    ): Route = calculateMotorcycleRoute(start, end, waypoints, RouteType.MOTORCYCLE, null)
-
-    fun calculateMotorcycleRoute(
-        start: Waypoint,
-        end: Waypoint,
-        waypoints: List<Waypoint>?,
-        routePreference: RouteType
-    ): Route = calculateMotorcycleRoute(start, end, waypoints, routePreference, null)
-
-    fun calculateMotorcycleRoute(
-        start: Waypoint,
-        end: Waypoint,
-        waypoints: List<Waypoint>?,
-        routePreference: RouteType,
-        avoidances: Set<Avoidance>?
-    ): Route = fetchRouteFromOsrm(start, end, waypoints, routePreference, avoidances)
 
     fun calculateRouteAsync(
         start: Waypoint,
@@ -59,19 +38,8 @@ class RouteService {
         val executor: ExecutorService = Executors.newSingleThreadExecutor()
         executor.execute {
             try {
-                val allWaypoints = ArrayList<Waypoint>()
-                allWaypoints.add(start)
-                if (waypoints != null) {
-                    for (wp in waypoints) {
-                        if (wp !== start && wp !== end) {
-                            allWaypoints.add(wp)
-                        }
-                    }
-                }
-                allWaypoints.add(end)
-
-                val route = fetchRouteFromOsrm(start, end, waypoints, routePreference, avoidances)
-                callback?.onRouteCalculated(route)
+                val routes = fetchRoutesFromOsrm(start, end, waypoints, routePreference, avoidances)
+                callback?.onRouteCalculated(routes)
             } catch (e: Exception) {
                 callback?.onError(e.message ?: "Unknown error")
             }
@@ -79,15 +47,16 @@ class RouteService {
         }
     }
 
-    private fun fetchRouteFromOsrm(
+    private fun fetchRoutesFromOsrm(
         start: Waypoint,
         end: Waypoint,
         waypoints: List<Waypoint>?,
         routePreference: RouteType,
         avoidances: Set<Avoidance>?
-    ): Route {
-        val route = Route(routePreference.displayName, buildFullWaypointList(start, end, waypoints))
-        route.avoidances = avoidances ?: emptySet()
+    ): List<Route> {
+        val fullWaypoints = buildFullWaypointList(start, end, waypoints)
+        val fallbackRoute = Route(routePreference.displayName, fullWaypoints)
+        fallbackRoute.avoidances = avoidances ?: emptySet()
 
         val allPoints = ArrayList<GeoPoint>()
         allPoints.add(start.location)
@@ -113,7 +82,7 @@ class RouteService {
             val baseUrl = if (avoidances != null && avoidances.isNotEmpty()) LOCAL_OSRM_URL else PUBLIC_OSRM_URL
             val excludeParam = buildExcludeParam(avoidances)
 
-            val query = StringBuilder("geometries=geojson&overview=full&alternatives=false&steps=false")
+            val query = StringBuilder("geometries=geojson&overview=full&alternatives=true&steps=false")
             if (excludeParam.isNotEmpty()) {
                 query.append("&exclude=").append(excludeParam)
             }
@@ -139,27 +108,21 @@ class RouteService {
                     }
                 }
 
-                if (!success) {
-                    try { android.util.Log.w("RouteService", "OSRM returned HTTP $responseCode: $responseText") } catch (_: Exception) {}
+                if (success) {
+                    val osrmRoutes = RouteUtils.parseOsrmRoutes(responseText.toString(), fullWaypoints, routePreference)
+                    if (osrmRoutes.isNotEmpty()) return osrmRoutes
                 } else {
-                    val osrm = RouteUtils.parseOsrmResponse(responseText.toString())
-                    if (osrm != null && osrm.geometry != null && osrm.geometry.isNotEmpty()) {
-                        route.routeGeometry = osrm.geometry
-                        route.distance = osrm.distance / 1000.0
-                        route.duration = osrm.duration
-                        calculateCurvatureAndElevation(route, routePreference)
-                        return route
-                    }
+                    try { android.util.Log.w("RouteService", "OSRM returned HTTP $responseCode") } catch (_: Exception) {}
                 }
             } finally {
                 conn.disconnect()
             }
         } catch (e: Exception) {
-            try { android.util.Log.w("RouteService", "OSRM routing failed, using straight-line estimate", e) } catch (_: Exception) {}
+            try { android.util.Log.w("RouteService", "OSRM routing failed, fallback to straight-line", e) } catch (_: Exception) {}
         }
 
-        calculateStraightLineMetrics(route, routePreference)
-        return route
+        calculateStraightLineMetrics(fallbackRoute, routePreference)
+        return listOf(fallbackRoute)
     }
 
     private fun buildFullWaypointList(start: Waypoint, end: Waypoint, waypoints: List<Waypoint>?): List<Waypoint> {
@@ -231,7 +194,7 @@ class RouteService {
         }
 
         route.distance = totalDistance / 1000.0
-        route.duration = totalDuration
+        route.duration = totalDuration * 60.0
         calculateCurvatureAndElevation(route, routePreference)
     }
 }

@@ -15,9 +15,106 @@ import java.util.concurrent.Executors
 
 object RouteUtils {
 
+    data class LocationSuggestion(
+        val displayName: String,
+        val lat: Double,
+        val lon: Double
+    )
+
     interface GeocodingCallback {
         fun onResult(geoPoint: GeoPoint)
         fun onError(error: String)
+    }
+
+    fun reverseGeocode(lat: Double, lon: Double, callback: (String?) -> Unit) {
+        val executor: ExecutorService = Executors.newSingleThreadExecutor()
+        executor.execute {
+            try {
+                val urlObj = URL("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lon&format=json&zoom=18")
+                val conn = urlObj.openConnection() as HttpURLConnection
+                conn.connectTimeout = 5000
+                conn.readTimeout = 10000
+                conn.setRequestProperty("User-Agent", "MotoRider/1.0")
+
+                val response = try {
+                    BufferedReader(InputStreamReader(conn.inputStream)).use { reader ->
+                        reader.readLines().joinToString("\n")
+                    }
+                } finally {
+                    conn.disconnect()
+                }
+
+                val json = JSONObject(response)
+                val displayName = json.optString("display_name", null)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    callback(displayName)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("RouteUtils", "Reverse geocoding failed", e)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    callback(null)
+                }
+            }
+            executor.shutdown()
+        }
+    }
+
+    fun searchLocations(
+        query: String,
+        centerLat: Double? = null,
+        centerLon: Double? = null,
+        callback: (List<LocationSuggestion>) -> Unit
+    ) {
+        val executor: ExecutorService = Executors.newSingleThreadExecutor()
+        executor.execute {
+            try {
+                val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
+                val baseUrl = "https://nominatim.openstreetmap.org/search?q=$encoded&format=json&limit=10&addressdetails=1"
+
+                val urlStr = if (centerLat != null && centerLon != null) {
+                    val viewboxMinLon = centerLon - 1.0
+                    val viewboxMinLat = centerLat - 1.0
+                    val viewboxMaxLon = centerLon + 1.0
+                    val viewboxMaxLat = centerLat + 1.0
+                    "${baseUrl}&viewbox=${viewboxMinLon},${viewboxMinLat},${viewboxMaxLon},${viewboxMaxLat}"
+                } else baseUrl
+
+                val conn = URL(urlStr).openConnection() as HttpURLConnection
+                conn.connectTimeout = 5000
+                conn.readTimeout = 10000
+                conn.setRequestProperty("User-Agent", "MotoRider/1.0")
+
+                val response = try {
+                    BufferedReader(InputStreamReader(conn.inputStream)).use { reader ->
+                        reader.readLines().joinToString("\n")
+                    }
+                } finally {
+                    conn.disconnect()
+                }
+
+                val results = JSONArray(response)
+                val suggestions = mutableListOf<LocationSuggestion>()
+                for (i in 0 until results.length()) {
+                    val item = results.getJSONObject(i)
+                    suggestions.add(
+                        LocationSuggestion(
+                            displayName = item.optString("display_name", "Unknown"),
+                            lat = item.getDouble("lat"),
+                            lon = item.getDouble("lon")
+                        )
+                    )
+                }
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    callback(suggestions)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("RouteUtils", "Location search failed: $query", e)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    callback(emptyList())
+                }
+            }
+            executor.shutdown()
+        }
     }
 
     fun geocodeLocation(locationName: String, callback: GeocodingCallback?) {
@@ -48,15 +145,19 @@ object RouteUtils {
 
                 val parsed = parseGeocodingResponse(response)
                 if (parsed != null) {
-                    callback?.onResult(parsed)
+                    if (mainHandler != null) mainHandler.post { callback?.onResult(parsed) }
+                    else callback?.onResult(parsed)
                 } else {
-                    callback?.onError("Location not found: $locationName")
+                    if (mainHandler != null) mainHandler.post { callback?.onError("Location not found: $locationName") }
+                    else callback?.onError("Location not found: $locationName")
                 }
             } catch (e: Exception) {
                 android.util.Log.w("RouteUtils", "Geocoding failed for: $locationName", e)
                 val errorMsg = "Network error: ${e.message}"
-                callback?.onError(errorMsg)
+                if (mainHandler != null) mainHandler.post { callback?.onError(errorMsg) }
+                else callback?.onError(errorMsg)
             }
+            executor.shutdown()
         }
     }
 
@@ -142,54 +243,55 @@ object RouteUtils {
         return null
     }
 
-    data class OsrmResult(
-        val geometry: List<GeoPoint>,
-        val distance: Double,
-        val duration: Double
-    )
-
     /**
      * Parse an OSRM /route/v1 response (requested with
      * geometries=geojson&overview=full) into the full road-following
      * geometry plus the route-level distance and duration.
      */
-    fun parseOsrmResponse(jsonResponse: String?): OsrmResult? {
-        if (jsonResponse.isNullOrEmpty()) return null
+    fun parseOsrmRoutes(
+        jsonResponse: String?,
+        waypoints: List<Waypoint>,
+        routePreference: com.motorider.models.RouteType
+    ): List<com.motorider.models.Route> {
+        if (jsonResponse.isNullOrEmpty()) return emptyList()
 
         return try {
             val root = JSONObject(jsonResponse)
-
-            if (root.optString("code") != "Ok") return null
+            if (root.optString("code") != "Ok") return emptyList()
 
             val routes = root.optJSONArray("routes")
-            if (routes == null || routes.length() == 0) return null
+            if (routes == null || routes.length() == 0) return emptyList()
 
-            val route = routes.getJSONObject(0)
+            val resultList = mutableListOf<com.motorider.models.Route>()
+            for (r in 0 until routes.length()) {
+                val routeObj = routes.getJSONObject(r)
+                val distance = routeObj.optDouble("distance", 0.0)
+                val duration = routeObj.optDouble("duration", 0.0)
+                val geometry = routeObj.optJSONObject("geometry") ?: continue
+                val coordinates = geometry.optJSONArray("coordinates") ?: continue
 
-            val distance = route.optDouble("distance", 0.0)
-            val duration = route.optDouble("duration", 0.0)
+                val points = ArrayList<GeoPoint>(coordinates.length())
+                for (i in 0 until coordinates.length()) {
+                    val pair = coordinates.optJSONArray(i) ?: continue
+                    if (pair.length() < 2) continue
+                    points.add(GeoPoint(pair.getDouble(1), pair.getDouble(0)))
+                }
 
-            val geometry = route.optJSONObject("geometry")
-            if (geometry == null) return null
+                if (points.isEmpty()) continue
 
-            val coordinates = geometry.optJSONArray("coordinates")
-            if (coordinates == null || coordinates.length() == 0) return null
-
-            val points = ArrayList<GeoPoint>(coordinates.length())
-            for (i in 0 until coordinates.length()) {
-                val pair = coordinates.optJSONArray(i)
-                if (pair == null || pair.length() < 2) continue
-                val lon = pair.getDouble(0)
-                val lat = pair.getDouble(1)
-                points.add(GeoPoint(lat, lon))
+                val routeName = if (r == 0) routePreference.displayName else "${routePreference.displayName} (Alt ${r + 1})"
+                val route = com.motorider.models.Route(routeName, waypoints.toList())
+                route.routeGeometry = points
+                route.distance = distance / 1000.0
+                route.duration = duration / 60.0
+                route.curvatureScore = calculateCurvatureScore(waypoints) * routePreference.getCurvatureWeight()
+                route.elevationGain = calculateElevationGain(waypoints)
+                resultList.add(route)
             }
-
-            if (points.isEmpty()) return null
-
-            OsrmResult(points, distance, duration)
+            resultList
         } catch (e: Exception) {
             try { android.util.Log.w("RouteUtils", "Failed to parse OSRM response", e) } catch (_: Exception) {}
-            null
+            emptyList()
         }
     }
 

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Rear wheel rim -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.95"
+        android:pathData="M33,68m-6.5,0a6.5,6.5 0,1 1,13 0a6.5,6.5 0,1 1,-13 0" />
+    <!-- Rear wheel hub -->
+    <path
+        android:fillColor="#0D47A1"
+        android:pathData="M33,68m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <!-- Front wheel rim -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.95"
+        android:pathData="M79,68m-6.5,0a6.5,6.5 0,1 1,13 0a6.5,6.5 0,1 1,-13 0" />
+    <!-- Front wheel hub -->
+    <path
+        android:fillColor="#0D47A1"
+        android:pathData="M79,68m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <!-- Motorcycle body / frame -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.95"
+        android:pathData="M26,54L26,52c0,-3 2,-6 5,-7l8,-4L46,20h6l4,25l12,-2l6,8l1,4l-5,6l-15,3l-14,-1c-4,-1 -8,-4 -10,-7zM30,53c1,2 3,3 5,3l13,1l13,-3l3,-4l-4,-5l-1,-1l-9,-5L46,25h-2l-6,22l-6,2c-1,1 -2,2 -2,4z" />
+    <!-- Handlebar / fork -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.95"
+        android:pathData="M72,68l-2,-18l-5,-4l5,0l2,10l3,12zM77,48l-4,2c-1,0 -2,1 -2,2l-1,16l3,-14z" />
+    <!-- Seat -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.9"
+        android:pathData="M40,42c0,-3 2,-5 5,-5l10,-2c1,0 2,1 2,2l-1,6c0,1 -1,2 -2,2l-12,1c-1,0 -2,-1 -2,-2z" />
+    <!-- Rider silhouette (simplified) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.7"
+        android:pathData="M44,40L42,28c0,-1 1,-2 2,-2l3,1l4,4l-3,11zM50,27c-1,0 -2,-1 -2,-2s1,-2 2,-2s2,1 2,2s-1,2 -2,2z" />
+    <!-- Exhaust pipe -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.6"
+        android:pathData="M34,62c-1,0 -2,1 -2,2l1,3l3,1l1,-4c0,-1 -1,-2 -2,-2z" />
+</vector>

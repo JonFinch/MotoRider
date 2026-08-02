@@ -1,6 +1,9 @@
 package com.motorider.ui.component
 
 import android.content.Context
+import android.os.Looper
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.ViewGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -12,24 +15,21 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import org.osmdroid.config.Configuration
-import org.osmdroid.events.MapListener
-import org.osmdroid.events.ScrollEvent
-import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
 @Composable
 fun OsmMapView(
     modifier: Modifier = Modifier,
     onLocationReceived: ((GeoPoint) -> Unit)? = null,
-    onMapViewReady: ((MapView) -> Unit)? = null
+    onMapViewReady: ((MapView) -> Unit)? = null,
+    onMapTapped: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val mainHandler = remember { android.os.Handler(Looper.getMainLooper()) }
 
     val mapView = remember {
         MapView(context).apply {
@@ -43,11 +43,6 @@ fun OsmMapView(
             controller?.setZoom(12.0)
             controller?.setCenter(GeoPoint(51.5074, -0.1278))
             Configuration.getInstance().userAgentValue = context.packageName
-
-            addMapListener(object : MapListener {
-                override fun onScroll(event: ScrollEvent): Boolean = false
-                override fun onZoom(event: ZoomEvent): Boolean = false
-            })
         }
     }
 
@@ -56,9 +51,11 @@ fun OsmMapView(
             enableMyLocation()
             runOnFirstFix {
                 myLocation?.let { loc ->
-                    mapView.controller?.setCenter(loc)
-                    mapView.controller?.setZoom(15.0)
-                    onLocationReceived?.invoke(loc)
+                    mainHandler.post {
+                        mapView.controller?.setCenter(loc)
+                        mapView.controller?.setZoom(15.0)
+                        onLocationReceived?.invoke(loc)
+                    }
                 }
             }
         }
@@ -72,10 +69,32 @@ fun OsmMapView(
         }
     }
 
+    DisposableEffect(onMapTapped) {
+        val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapUp(e: MotionEvent): Boolean {
+                if (e.pointerCount == 1) {
+                    onMapTapped?.invoke()
+                }
+                return false
+            }
+        })
+        val listener = android.view.View.OnTouchListener { _, event ->
+            detector.onTouchEvent(event)
+            false
+        }
+        mapView.setOnTouchListener(listener)
+        onDispose {
+            mapView.setOnTouchListener(null)
+        }
+    }
+
     val observer = remember {
         LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_RESUME -> {
+                    mapView.onResume()
+                    locationOverlay.enableMyLocation()
+                }
                 Lifecycle.Event.ON_PAUSE -> {
                     mapView.onPause()
                     locationOverlay.disableMyLocation()
