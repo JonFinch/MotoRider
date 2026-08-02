@@ -3,9 +3,13 @@ package com.motorider.ui.screen
 import android.content.Intent
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,12 +22,24 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.motorider.R
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 import com.motorider.maps.MotorcycleMapRenderer
 import com.motorider.models.Avoidance
 import com.motorider.models.Route
@@ -60,6 +76,7 @@ fun MapScreen() {
     val scope = rememberCoroutineScope()
 
     var routeInfoVisible by rememberSaveable { mutableStateOf(false) }
+    var quickRidePanelVisible by remember { mutableStateOf(true) }
     var isGeocoding by remember { mutableStateOf(false) }
 
     var lastStartText by rememberSaveable { mutableStateOf("") }
@@ -67,6 +84,17 @@ fun MapScreen() {
     var lastIntermediates by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var lastLegPrefs by rememberSaveable { mutableStateOf<List<RouteType>>(emptyList()) }
     var lastAvoidances by rememberSaveable { mutableStateOf<Set<Avoidance>>(emptySet()) }
+
+    var distanceUnitMiles by rememberSaveable { mutableStateOf(true) }
+
+    LaunchedEffect(currentScreen) {
+        quickRidePanelVisible = true
+    }
+
+    fun formatDistance(km: Double): String {
+        return if (distanceUnitMiles) "%.1f".format(km * 0.621371) + " mi"
+        else "%.1f".format(km) + " km"
+    }
 
     LaunchedEffect(selectedRouteIndex, currentRoutes) {
         val route = currentRoutes.getOrNull(selectedRouteIndex) ?: return@LaunchedEffect
@@ -76,6 +104,10 @@ fun MapScreen() {
         }
     }
 
+    BackHandler(enabled = drawerState.isOpen) {
+        scope.launch { drawerState.close() }
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         gesturesEnabled = false,
@@ -83,31 +115,61 @@ fun MapScreen() {
             ModalDrawerSheet(modifier = Modifier.width(280.dp)) {
                 Spacer(Modifier.height(20.dp))
                 Text(
-                    "MotoRider",
+                    stringResource(R.string.app_name),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = BrandBlue,
-                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp)
+                    modifier = Modifier
+                        .padding(horizontal = 28.dp, vertical = 8.dp)
+                        .clickable { scope.launch { drawerState.close() } }
                 )
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                DrawerItem(Screen.Plan, "Plan", Icons.Outlined.EditLocation, currentScreen) {
+                DrawerItem(Screen.Plan, stringResource(R.string.drawer_plan), Icons.Outlined.EditLocation, currentScreen) {
                     currentScreen = it
                     scope.launch { drawerState.close() }
                 }
-                DrawerItem(Screen.QuickRide, "Quick Ride", Icons.Outlined.Refresh, currentScreen) {
+                DrawerItem(Screen.QuickRide, stringResource(R.string.drawer_quick_ride), Icons.Outlined.Refresh, currentScreen) {
                     currentScreen = it
                     scope.launch { drawerState.close() }
                 }
-                DrawerItem(Screen.Search, "Search", Icons.Outlined.Search, currentScreen) {
+                DrawerItem(Screen.Search, stringResource(R.string.drawer_search), Icons.Outlined.Search, currentScreen) {
                     currentScreen = it
                     scope.launch { drawerState.close() }
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { distanceUnitMiles = !distanceUnitMiles }
+                        .padding(horizontal = 28.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Straighten, null, tint = OnSurfaceVariantLight, modifier = Modifier.size(22.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(stringResource(R.string.settings_distance_units), style = MaterialTheme.typography.bodyMedium, color = OnSurfaceLight)
+                            Text(
+                                if (distanceUnitMiles) stringResource(R.string.settings_miles) else stringResource(R.string.settings_kilometres),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OnSurfaceVariantLight
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = distanceUnitMiles,
+                        onCheckedChange = { distanceUnitMiles = it },
+                        colors = SwitchDefaults.colors(checkedTrackColor = BrandBlue)
+                    )
+                }
+
                 Spacer(Modifier.weight(1f))
                 Text(
-                    "Life is too short for a boring ride.",
+                    stringResource(R.string.drawer_tagline),
                     style = MaterialTheme.typography.bodySmall,
                     color = OnSurfaceVariantLight,
                     modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp)
@@ -121,15 +183,15 @@ fun MapScreen() {
                     title = {
                         Text(
                             when (currentScreen) {
-                                Screen.Plan -> "Plan Route"
-                                Screen.QuickRide -> "Quick Ride"
-                                Screen.Search -> "Search"
+                                Screen.Plan -> stringResource(R.string.screen_plan)
+                                Screen.QuickRide -> stringResource(R.string.screen_quick_ride)
+                                Screen.Search -> stringResource(R.string.screen_search)
                             }
                         )
                     },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, "Menu")
+                            Icon(Icons.Default.Menu, stringResource(R.string.menu))
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -138,11 +200,15 @@ fun MapScreen() {
                 )
             }
         ) { innerPadding ->
-            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding).navigationBarsPadding()) {
                 OsmMapView(
                     modifier = Modifier.fillMaxSize(),
                     onLocationReceived = { location -> currentLocation = location },
-                    onMapViewReady = { mv -> mapView = mv }
+                    onMapViewReady = { mv -> mapView = mv },
+                    onMapTapped = {
+                        if (drawerState.isOpen) scope.launch { drawerState.close() }
+                        else quickRidePanelVisible = !quickRidePanelVisible
+                    }
                 )
 
                 AnimatedVisibility(
@@ -155,7 +221,8 @@ fun MapScreen() {
                         routes = currentRoutes,
                         selectedIndex = selectedRouteIndex,
                         onSelectRoute = { selectedRouteIndex = it },
-                        onBackToPlanning = { routeInfoVisible = false }
+                        onBackToPlanning = { routeInfoVisible = false },
+                        formatDistance = ::formatDistance
                     )
                 }
 
@@ -176,7 +243,7 @@ fun MapScreen() {
                                     color = BrandBlue
                                 )
                                 Spacer(Modifier.width(12.dp))
-                                Text("Finding route...", fontSize = 15.sp)
+                                Text(stringResource(R.string.finding_route), fontSize = 15.sp)
                             }
                         }
                     }
@@ -185,9 +252,16 @@ fun MapScreen() {
                 when (currentScreen) {
                     Screen.Plan -> PlanPanel(
                         currentLocation = currentLocation,
+                        hasRoute = currentRoutes.isNotEmpty(),
                         initialStart = lastStartText,
                         initialEnd = lastEndText,
                         initialIntermediates = lastIntermediates,
+                        onNavigate = {
+                            val intent = Intent(context, NavigationService::class.java)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+                            else context.startService(intent)
+                            Toast.makeText(context, context.getString(R.string.navigation_started), Toast.LENGTH_SHORT).show()
+                        },
                         onPlanRoute = { start, end, intermediates, legPrefs, avoidances ->
                             lastStartText = start
                             lastEndText = end
@@ -208,23 +282,40 @@ fun MapScreen() {
                             }
                         }
                     )
-                    Screen.QuickRide -> QuickRidePanel(
-                        currentLocation = currentLocation,
-                        onGenerateRoundTrip = { dist, dir ->
+                    Screen.QuickRide -> AnimatedVisibility(
+                        visible = quickRidePanelVisible,
+                        enter = fadeIn() + slideInVertically(tween(300)) { it },
+                        exit = fadeOut() + slideOutVertically(tween(300)) { it },
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    ) {
+                        QuickRidePanel(
+                            currentLocation = currentLocation,
+                            hasRoute = currentRoutes.isNotEmpty(),
+                            distanceUnitMiles = distanceUnitMiles,
+                            onNavigate = {
+                                val intent = Intent(context, NavigationService::class.java)
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+                                else context.startService(intent)
+                                Toast.makeText(context, context.getString(R.string.navigation_started), Toast.LENGTH_SHORT).show()
+                            },
+                            onGenerateRoundTrip = { dist, dir ->
                             currentLocation?.let { loc ->
                                 isGeocoding = true
                                 generateRoundTrip(
                                     context, routeService, loc, dist, dir,
-                                    RouteType.CURVY, emptySet()
-                                ) { routes ->
-                                    currentRoutes = routes
-                                    selectedRouteIndex = 0
-                                    routeInfoVisible = true
-                                    isGeocoding = false
-                                }
-                            } ?: Toast.makeText(context, "Waiting for GPS...", Toast.LENGTH_SHORT).show()
+                                    RouteType.CURVY, emptySet(),
+                                    { routes ->
+                                        currentRoutes = routes
+                                        selectedRouteIndex = 0
+                                        routeInfoVisible = true
+                                        isGeocoding = false
+                                    },
+                                    ::formatDistance
+                                )
+                            } ?: Toast.makeText(context, context.getString(R.string.waiting_for_gps), Toast.LENGTH_SHORT).show()
                         }
                     )
+                    }
                     Screen.Search -> SearchPanel()
                 }
             }
@@ -260,9 +351,11 @@ private fun DrawerItem(
 @Composable
 private fun BoxScope.PlanPanel(
     currentLocation: GeoPoint?,
+    hasRoute: Boolean,
     initialStart: String,
     initialEnd: String,
     initialIntermediates: List<String>,
+    onNavigate: () -> Unit,
     onPlanRoute: (String, String, List<String>, List<RouteType>, Set<Avoidance>) -> Unit
 ) {
     var startText by remember { mutableStateOf(initialStart) }
@@ -297,11 +390,11 @@ private fun BoxScope.PlanPanel(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                LegChip("Leg 1", legPrefs.getOrElse(0) { RouteType.CURVY }) {
+                LegChip(stringResource(R.string.leg_fmt, 1), legPrefs.getOrElse(0) { RouteType.CURVY }) {
                     editingLegIndex = 0; showPreferenceDialog = true
                 }
                 intermediates.forEachIndexed { i, _ ->
-                    LegChip("Leg ${i + 2}", legPrefs.getOrElse(i + 1) { RouteType.CURVY }) {
+                    LegChip(stringResource(R.string.leg_fmt, i + 2), legPrefs.getOrElse(i + 1) { RouteType.CURVY }) {
                         editingLegIndex = i + 1; showPreferenceDialog = true
                     }
                 }
@@ -311,7 +404,7 @@ private fun BoxScope.PlanPanel(
 
             WaypointField(
                 icon = Icons.Default.Home, tint = BrandBlue,
-                hint = "Start location", value = startText,
+                hint = stringResource(R.string.start_location_hint), value = startText,
                 onValueChange = { startText = it },
                 bgColor = StartLocationBgLight,
                 currentLocation = currentLocation
@@ -321,7 +414,7 @@ private fun BoxScope.PlanPanel(
                 Spacer(Modifier.height(2.dp))
                 WaypointField(
                     icon = Icons.Default.MyLocation, tint = AccentOrange,
-                    hint = "Via point ${i + 1}", value = wp,
+                    hint = stringResource(R.string.via_point_hint, i + 1), value = wp,
                     onValueChange = { value -> intermediates = intermediates.toMutableList().also { it[i] = value } },
                     bgColor = ViaLocationBgLight,
                     currentLocation = currentLocation,
@@ -332,7 +425,7 @@ private fun BoxScope.PlanPanel(
             Spacer(Modifier.height(2.dp))
             WaypointField(
                 icon = Icons.Default.Flag, tint = ErrorRed,
-                hint = "End location", value = endText,
+                hint = stringResource(R.string.end_location_hint), value = endText,
                 onValueChange = { endText = it },
                 bgColor = EndLocationBgLight,
                 currentLocation = currentLocation
@@ -347,16 +440,16 @@ private fun BoxScope.PlanPanel(
             ) {
                 AssistChip(
                     onClick = { showPreferenceDialog = true },
-                    label = { Text("Curvature") },
+                    label = { Text(stringResource(R.string.curvature)) },
                     leadingIcon = { Icon(imageVector = Icons.Outlined.Timeline, contentDescription = null, modifier = Modifier.size(16.dp)) }
                 )
                 AssistChip(
                     onClick = { showAvoidanceDialog = true },
-                    label = { Text(if (selectedAvoidances.isEmpty()) "Avoidances" else "Avoidances (${selectedAvoidances.size})") },
+                    label = { Text(if (selectedAvoidances.isEmpty()) stringResource(R.string.avoidances) else stringResource(R.string.avoidances_fmt, selectedAvoidances.size)) },
                     leadingIcon = { Icon(imageVector = Icons.Outlined.Shield, contentDescription = null, modifier = Modifier.size(16.dp)) }
                 )
                 IconButton(onClick = { intermediates = intermediates + "" }) {
-                    Icon(Icons.Default.Add, "Add via", tint = BrandBlue)
+                    Icon(Icons.Default.Add, null, tint = BrandBlue)
                 }
                 Spacer(Modifier.weight(1f))
                 Button(
@@ -368,8 +461,20 @@ private fun BoxScope.PlanPanel(
                     colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                 ) {
-                    Text("Go", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.go), fontWeight = FontWeight.Bold)
                 }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onNavigate,
+                enabled = hasRoute,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Outlined.Route, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.start_ride), fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -395,10 +500,27 @@ private fun BoxScope.PlanPanel(
 @Composable
 private fun BoxScope.QuickRidePanel(
     currentLocation: GeoPoint?,
+    hasRoute: Boolean,
+    distanceUnitMiles: Boolean,
+    onNavigate: () -> Unit,
     onGenerateRoundTrip: (Double, Int) -> Unit
 ) {
-    var selectedDistance by remember { mutableDoubleStateOf(30.0) }
-    var selectedDirection by remember { mutableIntStateOf(0) }
+    val maxKm = 500.0
+    var selectedDistanceKm by rememberSaveable { mutableDoubleStateOf(30.0) }
+    var selectedDirection by rememberSaveable { mutableIntStateOf(0) }
+
+    val displayValue: Double
+    val displayMax: Double
+    val unitLabel: String
+    if (distanceUnitMiles) {
+        displayValue = selectedDistanceKm * 0.621371
+        displayMax = maxKm * 0.621371
+        unitLabel = "mi"
+    } else {
+        displayValue = selectedDistanceKm
+        displayMax = maxKm
+        unitLabel = "km"
+    }
 
     Surface(
         modifier = Modifier.align(Alignment.BottomCenter),
@@ -407,40 +529,69 @@ private fun BoxScope.QuickRidePanel(
         shadowElevation = 12.dp
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            Text("Round Trip", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.round_trip), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
 
-            Text("Distance", style = MaterialTheme.typography.labelMedium, color = OnSurfaceVariantLight)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(stringResource(R.string.distance), style = MaterialTheme.typography.labelMedium, color = OnSurfaceVariantLight)
+                Text(
+                    "${"%.0f".format(displayValue)} $unitLabel",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = AccentOrange
+                )
+            }
             Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val distances = listOf(30.0 to "30", 50.0 to "50", 80.0 to "80", 120.0 to "120", 200.0 to "200")
-                distances.forEach { (d, l) ->
-                    FilterChip(
-                        selected = selectedDistance == d,
-                        onClick = { selectedDistance = d },
-                        label = { Text(l, fontSize = 13.sp) }
-                    )
-                }
+            Slider(
+                value = selectedDistanceKm.toFloat(),
+                onValueChange = { selectedDistanceKm = it.toDouble() },
+                valueRange = 10f..maxKm.toFloat(),
+                onValueChangeFinished = {},
+                colors = SliderDefaults.colors(
+                    thumbColor = AccentOrange,
+                    activeTrackColor = AccentOrange,
+                    inactiveTrackColor = AccentOrange.copy(alpha = 0.2f)
+                ),
+                steps = 0
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("10", fontSize = 11.sp, color = Gray400)
+                Text("${"%.0f".format(displayMax)}", fontSize = 11.sp, color = Gray400)
             }
 
             Spacer(Modifier.height(16.dp))
-            Text("Direction", style = MaterialTheme.typography.labelMedium, color = OnSurfaceVariantLight)
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                val dirs = listOf(0 to "N", 45 to "NE", 90 to "E", 135 to "SE", 180 to "S", 225 to "SW", 270 to "W", 315 to "NW")
-                dirs.forEach { (deg, lbl) ->
-                    FilterChip(
-                        selected = selectedDirection == deg,
-                        onClick = { selectedDirection = deg },
-                        label = { Text(lbl, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                    )
-                }
+            Text(stringResource(R.string.direction), style = MaterialTheme.typography.labelMedium, color = OnSurfaceVariantLight)
+            Spacer(Modifier.height(8.dp))
+            CompassSelector(
+                directionDegrees = selectedDirection,
+                onDirectionChanged = { selectedDirection = it },
+                modifier = Modifier.fillMaxWidth().height(200.dp)
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            OutlinedButton(
+                onClick = onNavigate,
+                enabled = hasRoute,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Outlined.Route, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.start_ride), fontWeight = FontWeight.SemiBold)
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(8.dp))
 
             Button(
-                onClick = { onGenerateRoundTrip(selectedDistance, selectedDirection) },
+                onClick = { onGenerateRoundTrip(selectedDistanceKm, selectedDirection) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
@@ -448,7 +599,7 @@ private fun BoxScope.QuickRidePanel(
             ) {
                 Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if (currentLocation != null) "Generate ($selectedDistance km)" else "Waiting for GPS...")
+                Text(if (currentLocation != null) stringResource(R.string.generate_fmt, "${"%.0f".format(displayValue)} $unitLabel") else stringResource(R.string.waiting_for_gps))
             }
         }
     }
@@ -470,7 +621,7 @@ private fun BoxScope.SearchPanel() {
             value = query,
             onValueChange = { query = it },
             modifier = Modifier.fillMaxWidth().padding(4.dp),
-            placeholder = { Text("Search for places, POIs...") },
+            placeholder = { Text(stringResource(R.string.search_placeholder)) },
             leadingIcon = { Icon(Icons.Default.Search, null) },
             singleLine = true,
             shape = RoundedCornerShape(14.dp),
@@ -495,12 +646,17 @@ private fun WaypointField(
     currentLocation: GeoPoint?,
     onRemove: (() -> Unit)? = null
 ) {
+    val currentLocationLabel = stringResource(R.string.current_location)
     var suggestions by remember { mutableStateOf<List<RouteUtils.LocationSuggestion>>(emptyList()) }
     var showSuggestions by remember { mutableStateOf(false) }
     var searchGen by remember { mutableIntStateOf(0) }
+    var isFocused by remember { mutableStateOf(false) }
+    var dismissJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(value) {
         showSuggestions = false
+        dismissJob?.cancel()
         if (value.length < 3) return@LaunchedEffect
         val gen = ++searchGen
         delay(1000)
@@ -508,6 +664,19 @@ private fun WaypointField(
         RouteUtils.searchLocations(value, currentLocation?.latitude, currentLocation?.longitude) { res ->
             suggestions = res
             showSuggestions = res.isNotEmpty() && value.length >= 3
+            if (showSuggestions) {
+                dismissJob = scope.launch {
+                    delay(4000)
+                    showSuggestions = false
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(isFocused) {
+        if (!isFocused) {
+            delay(200)
+            showSuggestions = false
         }
     }
 
@@ -525,7 +694,7 @@ private fun WaypointField(
                 OutlinedTextField(
                     value = value,
                     onValueChange = { onValueChange(it) },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).onFocusChanged { isFocused = it.isFocused },
                     placeholder = { Text(hint, fontSize = 13.sp) },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
@@ -536,17 +705,17 @@ private fun WaypointField(
                 )
                 IconButton(onClick = {
                     currentLocation?.let {
-                        onValueChange("Current Location")
+                        onValueChange(currentLocationLabel)
                         RouteUtils.reverseGeocode(it.latitude, it.longitude) { addr ->
                             if (addr != null) onValueChange(addr)
                         }
                     }
                 }, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.GpsFixed, "Use GPS", modifier = Modifier.size(16.dp), tint = tint)
+                    Icon(Icons.Default.GpsFixed, stringResource(R.string.use_gps), modifier = Modifier.size(16.dp), tint = tint)
                 }
                 if (onRemove != null) {
                     IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, "Remove", modifier = Modifier.size(16.dp), tint = Gray600)
+                        Icon(Icons.Default.Close, stringResource(R.string.remove), modifier = Modifier.size(16.dp), tint = Gray600)
                     }
                 }
             }
@@ -585,7 +754,7 @@ private fun LegChip(label: String, pref: RouteType, onClick: () -> Unit) {
     }
     AssistChip(
         onClick = onClick,
-        label = { Text("$label  ", fontSize = 11.sp) },
+        label = { Text(label, fontSize = 11.sp) },
         trailingIcon = { Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = color) }
     )
 }
@@ -594,15 +763,16 @@ private fun LegChip(label: String, pref: RouteType, onClick: () -> Unit) {
 private fun PreferenceDialog(current: RouteType, onSelect: (RouteType) -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Ride Style") },
+        title = { Text(stringResource(R.string.ride_style)) },
         text = {
             Column {
-                listOf(
-                    RouteType.DIRECT to "Direct \u2014 Straight and efficient",
-                    RouteType.FAST to "Fast \u2014 Quick with some turns",
-                    RouteType.CURVY to "Curvy \u2014 Scenic winding roads",
-                    RouteType.EXTRA_CURVY to "Extra Curvy \u2014 Maximum twisties"
-                ).forEach { (pref, desc) ->
+                val prefs = listOf(
+                    RouteType.DIRECT to R.string.direct_desc,
+                    RouteType.FAST to R.string.fast_desc,
+                    RouteType.CURVY to R.string.curvy_desc,
+                    RouteType.EXTRA_CURVY to R.string.extra_curvy_desc
+                )
+                prefs.forEach { (pref, descRes) ->
                     Row(
                         Modifier.fillMaxWidth().clickable { onSelect(pref) }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.Top
@@ -611,7 +781,7 @@ private fun PreferenceDialog(current: RouteType, onSelect: (RouteType) -> Unit, 
                         Spacer(Modifier.width(8.dp))
                         Column {
                             Text(pref.displayName, fontWeight = if (pref == current) FontWeight.Bold else FontWeight.Normal)
-                            Text(desc, style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariantLight)
+                            Text(stringResource(descRes), style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariantLight)
                         }
                     }
                 }
@@ -630,7 +800,7 @@ private fun AvoidanceDialog(
     var cur by remember { mutableStateOf(selected) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Avoidances") },
+        title = { Text(stringResource(R.string.avoidances_title)) },
         text = {
             Column {
                 Avoidance.entries.forEach { a ->
@@ -643,8 +813,8 @@ private fun AvoidanceDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onUpdate(cur) }) { Text("Done") } },
-        dismissButton = { TextButton(onClick = { onUpdate(emptySet()); onDismiss() }) { Text("Clear") } }
+        confirmButton = { TextButton(onClick = { onUpdate(cur) }) { Text(stringResource(R.string.done)) } },
+        dismissButton = { TextButton(onClick = { onUpdate(emptySet()); onDismiss() }) { Text(stringResource(R.string.clear)) } }
     )
 }
 
@@ -655,7 +825,8 @@ private fun RouteInfoCard(
     routes: List<Route>,
     selectedIndex: Int,
     onSelectRoute: (Int) -> Unit,
-    onBackToPlanning: () -> Unit
+    onBackToPlanning: () -> Unit,
+    formatDistance: (Double) -> String
 ) {
     val context = LocalContext.current
     val route = routes.getOrNull(selectedIndex) ?: return
@@ -668,30 +839,30 @@ private fun RouteInfoCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Route Ready", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.route_ready), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 TextButton(onClick = onBackToPlanning) {
                     Icon(Icons.Default.Edit, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Edit")
+                    Text(stringResource(R.string.edit))
                 }
             }
             if (routes.size > 1) {
                 Row(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     routes.forEachIndexed { i, _ ->
-                FilterChip(
-                    selected = i == selectedIndex,
-                    onClick = { onSelectRoute(i) },
-                    label = { Text(if (i == 0) "Route 1" else "Alt ${i + 1}", fontSize = 12.sp) }
-                )
+                    FilterChip(
+                        selected = i == selectedIndex,
+                        onClick = { onSelectRoute(i) },
+                        label = { Text(if (i == 0) stringResource(R.string.route_1) else stringResource(R.string.alt_fmt, i + 1), fontSize = 12.sp) }
+                    )
                     }
                 }
             }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                StatItem(Icons.Outlined.Navigation, "Distance", "${"%.1f".format(route.distance)} km")
-                StatItem(Icons.Outlined.Schedule, "Duration", "${"%.0f".format(route.duration)} min")
-                StatItem(Icons.Outlined.Straighten, "Curvature", "${"%.0f".format(route.curvatureScore)}%")
-                StatItem(Icons.Outlined.Terrain, "Elevation", "${"%.0f".format(route.elevationGain)} m")
+                StatItem(Icons.Outlined.Navigation, stringResource(R.string.distance_label), formatDistance(route.distance))
+                StatItem(Icons.Outlined.Schedule, stringResource(R.string.duration_label), "${"%.0f".format(route.duration)} min")
+                StatItem(Icons.Outlined.Straighten, stringResource(R.string.curvature_label), "${"%.0f".format(route.curvatureScore)}%")
+                StatItem(Icons.Outlined.Terrain, stringResource(R.string.elevation_label), stringResource(R.string.elevation_fmt, "${"%.0f".format(route.elevationGain)}"))
             }
             Spacer(Modifier.height(12.dp))
             Button(
@@ -706,7 +877,7 @@ private fun RouteInfoCard(
             ) {
                 Icon(Icons.Outlined.Route, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Start Navigation", fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.start_navigation_label), fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -722,16 +893,118 @@ private fun StatItem(icon: ImageVector, label: String, value: String) {
     }
 }
 
+@Composable
+private fun CompassSelector(
+    directionDegrees: Int,
+    onDirectionChanged: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val animatedAngle by animateFloatAsState(
+        targetValue = directionDegrees.toFloat(),
+        animationSpec = tween(150)
+    )
+
+    val compassLabels = listOf(
+        "N" to 0f, "NE" to 45f, "E" to 90f, "SE" to 135f,
+        "S" to 180f, "SW" to 225f, "W" to 270f, "NW" to 315f
+    )
+
+    Box(
+        modifier = modifier.pointerInput(Unit) {
+            detectDragGestures { change, _ ->
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val dx = change.position.x - cx
+                val dy = change.position.y - cy
+                val angleRad = atan2(dx.toDouble(), -dy.toDouble())
+                var deg = Math.toDegrees(angleRad)
+                if (deg < 0) deg += 360.0
+                onDirectionChanged(deg.toInt())
+            }
+        }
+    ) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val radius = (size.minDimension / 2f) * 0.82f
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val labelPaint = android.graphics.Paint().apply {
+                isAntiAlias = true
+                textAlign = android.graphics.Paint.Align.CENTER
+            }
+
+            // Outer ring
+            drawCircle(
+                color = Gray300,
+                radius = radius,
+                center = center,
+                style = Stroke(width = 2.5.dp.toPx())
+            )
+
+            // Inner ring (subtle)
+            drawCircle(
+                color = Gray200,
+                radius = radius * 0.55f,
+                center = center,
+                style = Stroke(width = 1.dp.toPx())
+            )
+
+            // Tick marks and labels
+            compassLabels.forEach { (label, deg) ->
+                val rad = Math.toRadians(deg.toDouble())
+                val tickLen = if (deg % 90f == 0f) 14.dp.toPx() else 8.dp.toPx()
+                val innerR = radius - tickLen - 1.dp.toPx()
+                val outerR = radius - 1.dp.toPx()
+                val sr = sin(rad).toFloat()
+                val cr = cos(rad).toFloat()
+                val isCardinal = deg % 90f == 0f
+
+                drawLine(
+                    color = if (isCardinal) Gray600 else Gray400,
+                    start = Offset(center.x + innerR * sr, center.y - innerR * cr),
+                    end = Offset(center.x + outerR * sr, center.y - outerR * cr),
+                    strokeWidth = if (isCardinal) 2.5.dp.toPx() else 1.5.dp.toPx()
+                )
+
+                // Draw label text on canvas
+                val labelR = radius - tickLen - 16.dp.toPx()
+                val lx = center.x + labelR * sr
+                val ly = center.y - labelR * cr
+                labelPaint.textSize = if (isCardinal) 12.dp.toPx() else 9.dp.toPx()
+                labelPaint.color = if (isCardinal) 0xFF424242.toInt() else 0xFF868E96.toInt()
+                labelPaint.isFakeBoldText = isCardinal
+                drawContext.canvas.nativeCanvas.drawText(label, lx, ly + labelPaint.textSize / 3f, labelPaint)
+            }
+
+            // V-shaped direction indicator
+            rotate(animatedAngle, center) {
+                val arrowH = radius * 0.38f
+                val arrowBaseY = center.y - radius * 0.44f
+                val halfW = arrowH * 0.45f
+                val arrowPath = Path().apply {
+                    moveTo(center.x, arrowBaseY - arrowH)
+                    lineTo(center.x - halfW, arrowBaseY)
+                    lineTo(center.x + halfW, arrowBaseY)
+                    close()
+                }
+                drawPath(path = arrowPath, color = AccentOrange.copy(alpha = 0.2f))
+                drawPath(path = arrowPath, color = AccentOrange, style = Stroke(width = 2.dp.toPx()))
+            }
+
+            // Center dot
+            drawCircle(color = AccentOrange, radius = 5.dp.toPx(), center = center)
+        }
+    }
+}
+
 // ─── Routing Functions ──────────────────────────────────────────────────────
 
 private fun generateRoundTrip(
     context: android.content.Context, routeService: RouteService,
     center: GeoPoint, targetDistanceKm: Double, directionDeg: Int,
     preference: RouteType, avoidances: Set<Avoidance>,
-    onRoutesReady: (List<Route>) -> Unit
+    onRoutesReady: (List<Route>) -> Unit, formatDistance: (Double) -> String
 ) {
     val radiusKm = targetDistanceKm / 7.0
-    val start = Waypoint("Start", center)
+    val start = Waypoint(context.getString(R.string.waypoint_start), center)
     val isCardinal = directionDeg % 90 == 0
     val spread = if (isCardinal) 120.0 else 90.0
     val halfSpread = spread / 2.0
@@ -743,7 +1016,7 @@ private fun generateRoundTrip(
         val cosLat = Math.cos(Math.toRadians(center.latitude))
         val latOff = (radiusKm / 111.32) * Math.cos(rad)
         val lonOff = (radiusKm / (111.32 * cosLat)) * Math.sin(rad)
-        Waypoint("Via", GeoPoint(center.latitude + latOff, center.longitude + lonOff))
+        Waypoint(context.getString(R.string.waypoint_via), GeoPoint(center.latitude + latOff, center.longitude + lonOff))
     }
 
     routeService.calculateRouteAsync(start, start, intermediatePoints, preference, avoidances,
@@ -751,13 +1024,13 @@ private fun generateRoundTrip(
             override fun onRouteCalculated(routes: List<Route>) {
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     onRoutesReady(routes)
-                    Toast.makeText(context, "Round trip: ${"%.1f".format(routes.firstOrNull()?.distance ?: 0.0)} km", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.round_trip_fmt, formatDistance(routes.firstOrNull()?.distance ?: 0.0)), Toast.LENGTH_SHORT).show()
                 }
             }
             override fun onError(error: String) {
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     onRoutesReady(emptyList())
-                    Toast.makeText(context, "Failed: $error", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, context.getString(R.string.round_trip_failed, error), Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -778,7 +1051,7 @@ private fun planRoute(
     if (allNames.size < 2) {
         currentLocation?.let { loc ->
             routeService.calculateRouteAsync(
-                Waypoint("Start", loc), Waypoint("End", GeoPoint(loc.latitude + 0.01, loc.longitude + 0.01)),
+                Waypoint(context.getString(R.string.waypoint_start), loc), Waypoint(context.getString(R.string.waypoint_end), GeoPoint(loc.latitude + 0.01, loc.longitude + 0.01)),
                 emptyList(), overallPreference, avoidances,
                 callback(routeService, mapRenderer, mapView, onRoutesReady)
             )
@@ -790,7 +1063,7 @@ private fun planRoute(
     val pending = AtomicInteger(allNames.size)
 
     allNames.forEachIndexed { index, name ->
-        if (name.startsWith("Current Location")) {
+        if (name.startsWith(context.getString(R.string.current_location))) {
             addResult(results, index, currentLocation ?: GeoPoint(51.5074, -0.1278))
             if (pending.decrementAndGet() == 0) routeFromResults(context, routeService, mapRenderer, mapView, allNames, results.filterNotNull(), overallPreference, avoidances, onRoutesReady)
         } else {
@@ -820,7 +1093,7 @@ private fun routeFromResults(
 ) {
     val start = Waypoint(names.first(), points.first())
     val end = Waypoint(names.last(), points.last())
-    val im = if (points.size > 2) points.subList(1, points.lastIndex).mapIndexed { i, p -> Waypoint(names.getOrElse(i + 1) { "Via" }, p) } else emptyList()
+    val im = if (points.size > 2) points.subList(1, points.lastIndex).mapIndexed { i, p -> Waypoint(names.getOrElse(i + 1) { context.getString(R.string.waypoint_via) }, p) } else emptyList()
     routeService.calculateRouteAsync(start, end, im, pref, avoid, callback(routeService, mapRenderer, mapView, onRoutesReady))
 }
 

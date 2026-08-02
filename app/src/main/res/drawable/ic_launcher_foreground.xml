@@ -4,47 +4,45 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Rear wheel rim -->
+    <!-- Mountain back peak -->
     <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.95"
-        android:pathData="M33,68m-6.5,0a6.5,6.5 0,1 1,13 0a6.5,6.5 0,1 1,-13 0" />
-    <!-- Rear wheel hub -->
-    <path
-        android:fillColor="#0D47A1"
-        android:pathData="M33,68m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
-    <!-- Front wheel rim -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.95"
-        android:pathData="M79,68m-6.5,0a6.5,6.5 0,1 1,13 0a6.5,6.5 0,1 1,-13 0" />
-    <!-- Front wheel hub -->
+        android:fillColor="#1565C0"
+        android:pathData="M10,75L40,30L70,75Z" />
+    <!-- Mountain front peak -->
     <path
         android:fillColor="#0D47A1"
-        android:pathData="M79,68m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
-    <!-- Motorcycle body / frame -->
+        android:pathData="M35,80L65,35L95,80Z" />
+    <!-- Road - wide base -->
     <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.95"
-        android:pathData="M26,54L26,52c0,-3 2,-6 5,-7l8,-4L46,20h6l4,25l12,-2l6,8l1,4l-5,6l-15,3l-14,-1c-4,-1 -8,-4 -10,-7zM30,53c1,2 3,3 5,3l13,1l13,-3l3,-4l-4,-5l-1,-1l-9,-5L46,25h-2l-6,22l-6,2c-1,1 -2,2 -2,4z" />
-    <!-- Handlebar / fork -->
+        android:fillColor="#ECEFF1"
+        android:pathData="M50,108L48,95C47,88 46,82 47,76C48,70 50,66 53,62C56,58 58,54 58,48C58,42 57,36 56,30L60,30C61,36 62,42 62,48C62,54 60,58 57,62C54,66 52,70 51,76C50,82 51,88 52,95L54,108Z" />
+    <!-- Road dashes - manual segments -->
     <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.95"
-        android:pathData="M72,68l-2,-18l-5,-4l5,0l2,10l3,12zM77,48l-4,2c-1,0 -2,1 -2,2l-1,16l3,-14z" />
-    <!-- Seat -->
+        android:fillColor="#FF6F00"
+        android:pathData="M51,105L51,100L52,100L52,105Z" />
     <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.9"
-        android:pathData="M40,42c0,-3 2,-5 5,-5l10,-2c1,0 2,1 2,2l-1,6c0,1 -1,2 -2,2l-12,1c-1,0 -2,-1 -2,-2z" />
-    <!-- Rider silhouette (simplified) -->
+        android:fillColor="#FF6F00"
+        android:pathData="M50,95L50,90L51,90L51,95Z" />
     <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.7"
-        android:pathData="M44,40L42,28c0,-1 1,-2 2,-2l3,1l4,4l-3,11zM50,27c-1,0 -2,-1 -2,-2s1,-2 2,-2s2,1 2,2s-1,2 -2,2z" />
-    <!-- Exhaust pipe -->
+        android:fillColor="#FF6F00"
+        android:pathData="M49,85L49,80L50,80L50,85Z" />
     <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.6"
-        android:pathData="M34,62c-1,0 -2,1 -2,2l1,3l3,1l1,-4c0,-1 -1,-2 -2,-2z" />
+        android:fillColor="#FF6F00"
+        android:pathData="M50,75L50,70L51,70L51,75Z" />
+    <path
+        android:fillColor="#FF6F00"
+        android:pathData="M53,65L53,60L54,60L54,65Z" />
+    <path
+        android:fillColor="#FF6F00"
+        android:pathData="M57,55L57,50L58,50L58,55Z" />
+    <path
+        android:fillColor="#FF6F00"
+        android:pathData="M59,45L59,40L60,40L60,45Z" />
+    <path
+        android:fillColor="#FF6F00"
+        android:pathData="M58,35L58,32L59,32L59,35Z" />
+    <!-- Sun accent -->
+    <path
+        android:fillColor="#FFB74D"
+        android:pathData="M78,25m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0" />
 </vector>

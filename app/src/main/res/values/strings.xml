@@ -2,35 +2,88 @@
 <resources>
     <string name="app_name">MotoRider</string>
     <string name="title_activity_main">MotoRider</string>
-    <string name="navigation_drawer_open">Open navigation drawer</string>
-    <string name="navigation_drawer_close">Close navigation drawer</string>
 
-    <!-- Map -->
+    <!-- Navigation -->
+    <string name="menu">Menu</string>
+    <string name="screen_plan">Plan Route</string>
+    <string name="screen_quick_ride">Quick Ride</string>
+    <string name="screen_search">Search</string>
+
+    <!-- Drawer -->
+    <string name="drawer_plan">Plan</string>
+    <string name="drawer_quick_ride">Quick Ride</string>
+    <string name="drawer_search">Search</string>
+    <string name="drawer_tagline">Life is too short for a boring ride.</string>
+    <string name="settings_distance_units">Distance Units</string>
+    <string name="settings_kilometres">Kilometres (km)</string>
+    <string name="settings_miles">Miles (mi)</string>
+
+    <!-- Routing -->
     <string name="start_navigation">Start Navigation</string>
     <string name="plan_route">Plan Route</string>
-
-    <!-- Route Planning -->
     <string name="curvature">Curvature</string>
     <string name="avoidances">Avoidances</string>
+    <string name="avoidances_fmt">Avoidances (%d)</string>
     <string name="plan_route_button">Plan Route</string>
     <string name="add_waypoint">Add waypoint</string>
+    <string name="add_via">Add via</string>
     <string name="start_location_hint">Start location</string>
     <string name="end_location_hint">End location</string>
+    <string name="via_point_hint">Via point %d</string>
     <string name="waypoint_hint">Waypoint %d</string>
     <string name="set_start_location">Set start location</string>
     <string name="set_end_location">Set end location</string>
+    <string name="use_gps">Use GPS</string>
     <string name="remove">Remove</string>
     <string name="route_preference_title">Route Preference</string>
     <string name="avoidances_title">Avoidances</string>
     <string name="clear_all">Clear All</string>
     <string name="done">Done</string>
-    <string name="more_options">More options</string>
+    <string name="clear">Clear</string>
+    <string name="cancel">Cancel</string>
+    <string name="go">Go</string>
+    <string name="generate">Generate</string>
+    <string name="ride">Ride</string>
+    <string name="start_ride">Start Ride</string>
+    <string name="edit">Edit</string>
 
     <!-- Route types -->
     <string name="direct">Direct</string>
     <string name="fast">Fast</string>
     <string name="curvy">Curvy</string>
     <string name="extra_curvy">Extra Curvy</string>
+
+    <!-- Route preference descriptions -->
+    <string name="direct_desc">Direct \u2014 Straight and efficient</string>
+    <string name="fast_desc">Fast \u2014 Quick with some turns</string>
+    <string name="curvy_desc">Curvy \u2014 Scenic winding roads</string>
+    <string name="extra_curvy_desc">Extra Curvy \u2014 Maximum twisties</string>
+
+    <!-- Ride style -->
+    <string name="ride_style">Ride Style</string>
+    <string name="leg_fmt">Leg %d</string>
+
+    <!-- Round trip -->
+    <string name="round_trip">Round Trip</string>
+    <string name="round_trip_settings">Round Trip Settings</string>
+    <string name="distance">Distance</string>
+    <string name="direction">Direction</string>
+    <string name="waiting_for_gps">Waiting for GPS…</string>
+    <string name="generate_fmt">Generate (%s)</string>
+    <string name="round_trip_fmt">Round trip: %s</string>
+    <string name="round_trip_failed">Failed: %s</string>
+
+    <!-- Route info -->
+    <string name="route_ready">Route Ready</string>
+    <string name="route_1">Route 1</string>
+    <string name="alt_fmt">Alt %d</string>
+    <string name="finding_route">Finding route…</string>
+    <string name="distance_label">Distance</string>
+    <string name="duration_label">Duration</string>
+    <string name="curvature_label">Curvature</string>
+    <string name="elevation_label">Elevation</string>
+    <string name="elevation_fmt">%s m</string>
+    <string name="start_navigation_label">Start Navigation</string>
 
     <!-- Vehicle types -->
     <string name="motorcycle">Motorcycle</string>
@@ -45,6 +98,9 @@
     <string name="unpaved_roads">Unpaved Roads</string>
     <string name="narrow_roads">Narrow Roads</string>
 
+    <!-- Search -->
+    <string name="search_placeholder">Search for places, POIs…</string>
+
     <!-- Messages -->
     <string name="navigation_started">Navigation started</string>
     <string name="please_plan_route_first">Please plan a route first</string>
@@ -52,6 +108,20 @@
     <string name="could_not_locate_addresses">Could not locate enough addresses. Please check spelling and try again.</string>
     <string name="route_calculation_failed">Route calculation failed: %s</string>
     <string name="error_ui_not_initialized">Error: UI not initialized</string>
-    <string name="avoidances_count">Avoidances (%d)</string>
     <string name="coming_soon">Coming soon</string>
+    <string name="routing_failed_fmt">Routing failed: %s</string>
+
+    <!-- Current location -->
+    <string name="current_location">Current Location</string>
+
+    <!-- Notification -->
+    <string name="notification_channel_name">MotoRider Navigation</string>
+    <string name="notification_channel_desc">Navigation updates for MotoRider</string>
+    <string name="notification_title">MotoRider</string>
+    <string name="notification_navigating">Navigation active</string>
+
+    <!-- Waypoint defaults -->
+    <string name="waypoint_start">Start</string>
+    <string name="waypoint_via">Via</string>
+    <string name="waypoint_end">End</string>
 </resources>

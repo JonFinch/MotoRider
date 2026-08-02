@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.motorider.R
 import com.motorider.activities.MainActivity
 
 class NavigationService : Service() {
@@ -28,10 +29,8 @@ class NavigationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "NavigationService started")
-
         val notification = createNotification()
         startForeground(NOTIFICATION_ID, notification)
-
         return START_STICKY
     }
 
@@ -47,10 +46,10 @@ class NavigationService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "MotoRider Navigation",
+                getString(R.string.notification_channel_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Navigation updates for MotoRider"
+                description = getString(R.string.notification_channel_desc)
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
@@ -62,11 +61,10 @@ class NavigationService : Service() {
             this, 0, notificationIntent,
             PendingIntent.FLAG_IMMUTABLE
         )
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("MotoRider")
-            .setContentText("Navigation active")
-            .setSmallIcon(com.motorider.R.drawable.ic_motorcycle)
+            .setContentTitle(getString(R.string.notification_title))
+            .setContentText(getString(R.string.notification_navigating))
+            .setSmallIcon(R.drawable.ic_motorcycle)
             .setContentIntent(pendingIntent)
             .build()
     }
