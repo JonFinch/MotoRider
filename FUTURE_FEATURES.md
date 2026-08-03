@@ -66,14 +66,19 @@
 - [x] Route elevation gain calculation display
 - [x] Route alternative generation (show 2-3 route options)
 
-### Phase 2 — Maps & Offline [PLANNED]
+### Phase 2 — Maps & Offline [IN PROGRESS]
 
-- [ ] Offline map downloads (per region)
-- [ ] Offline routing engine (embedded)
-- [ ] Offline address search
-- [ ] Map tile caching for frequently visited areas
-- [ ] Map layer selection (standard, satellite, terrain)
-- [ ] Weather overlay on map
+- [ ] **2.1 Offline map downloads (per region)** — South East UK (Kent, Sussex, London, Essex)
+- [ ] 2.2 Offline routing engine (embedded)
+- [ ] 2.3 Offline address search
+- [ ] 2.4 Map tile caching for frequently visited areas
+- [ ] 2.5 Map layer selection (standard, satellite, terrain)
+  - [ ] Additional tile sources: OpenTopoMap (terrain)
+  - [ ] Additional tile sources: Esri World Imagery (satellite)
+  - [ ] Additional tile sources: CyclOSM (cycling-focused)
+  - [ ] Additional tile sources: Stamen Terrain
+  - [ ] Custom tile source support (user-defined URLs)
+- [ ] 2.6 Weather overlay on map
 
 ### Phase 3 — Import / Export & Sharing
 

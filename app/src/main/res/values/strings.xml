@@ -124,4 +124,24 @@
     <string name="waypoint_start">Start</string>
     <string name="waypoint_via">Via</string>
     <string name="waypoint_end">End</string>
+
+    <!-- Offline Maps -->
+    <string name="offline_maps">Offline Maps</string>
+    <string name="offline_maps_download_progress">Offline maps download progress</string>
+    <string name="downloading_tiles">Downloading map tiles…</string>
+    <string name="download_complete">Download complete</string>
+    <string name="download_failed">Download failed</string>
+    <string name="download">Download</string>
+    <string name="delete">Delete</string>
+    <string name="downloading">Downloading…</string>
+    <string name="downloaded">Downloaded</string>
+    <string name="not_downloaded">Not downloaded</string>
+    <string name="estimated_size">Estimated size: %.1f MB</string>
+    <string name="tile_count">%d tiles</string>
+    <string name="storage_used">Storage used: %.1f MB</string>
+    <string name="available_space">Available: %.1f MB</string>
+    <string name="confirm_delete">Confirm Delete</string>
+    <string name="confirm_delete_message">Are you sure you want to delete the offline map for %s?</string>
+    <string name="insufficient_storage">Insufficient storage space</string>
+    <string name="storage_required" formatted="false">%.1f MB required, %.1f MB available</string>
 </resources>

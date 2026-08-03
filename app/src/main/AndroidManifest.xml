@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
@@ -38,6 +39,11 @@
         <service
             android:name=".services.NavigationService"
             android:foregroundServiceType="location"
+            android:exported="false" />
+
+        <service
+            android:name=".services.TileDownloadService"
+            android:foregroundServiceType="dataSync"
             android:exported="false" />
 
     </application>

@@ -56,7 +56,7 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import java.util.concurrent.atomic.AtomicInteger
 
-enum class Screen { Plan, QuickRide, Search }
+enum class Screen { Plan, QuickRide, Search, OfflineMaps }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -137,6 +137,10 @@ fun MapScreen() {
                     currentScreen = it
                     scope.launch { drawerState.close() }
                 }
+                DrawerItem(Screen.OfflineMaps, stringResource(R.string.offline_maps), Icons.Outlined.Download, currentScreen) {
+                    currentScreen = it
+                    scope.launch { drawerState.close() }
+                }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
@@ -186,6 +190,7 @@ fun MapScreen() {
                                 Screen.Plan -> stringResource(R.string.screen_plan)
                                 Screen.QuickRide -> stringResource(R.string.screen_quick_ride)
                                 Screen.Search -> stringResource(R.string.screen_search)
+                                Screen.OfflineMaps -> stringResource(R.string.offline_maps)
                             }
                         )
                     },
@@ -317,6 +322,9 @@ fun MapScreen() {
                     )
                     }
                     Screen.Search -> SearchPanel()
+                    Screen.OfflineMaps -> OfflineMapManagerScreen(
+                        onNavigateBack = { currentScreen = Screen.Plan }
+                    )
                 }
             }
         }
