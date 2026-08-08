@@ -8,12 +8,18 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -83,7 +89,11 @@ fun MapScreen() {
     var lastStartText by rememberSaveable { mutableStateOf("") }
     var lastEndText by rememberSaveable { mutableStateOf("") }
     var lastIntermediates by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
-    var lastLegPrefs by remember { mutableStateOf<List<RouteType>>(emptyList()) }
+    // Held at this level (not inside PlanPanel) so the rider's curvature and
+    // avoidance choices survive the panel leaving composition - switching screens,
+    // or planning a route and tapping Edit to come back. Defaults to a single
+    // Direct leg.
+    var lastLegPrefs by remember { mutableStateOf<List<RouteType>>(listOf(RouteType.DIRECT)) }
     var lastAvoidances by remember { mutableStateOf<Set<Avoidance>>(emptySet()) }
 
     var distanceUnitMiles by rememberSaveable { mutableStateOf(true) }
@@ -264,16 +274,14 @@ fun MapScreen() {
                     ) {
                         PlanPanel(
                         currentLocation = currentLocation,
-                        hasRoute = currentRoutes.isNotEmpty(),
                         initialStart = lastStartText,
                         initialEnd = lastEndText,
                         initialIntermediates = lastIntermediates,
-                        onNavigate = {
-                            val intent = Intent(context, NavigationService::class.java)
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
-                            else context.startService(intent)
-                            Toast.makeText(context, context.getString(R.string.navigation_started), Toast.LENGTH_SHORT).show()
-                        },
+                        initialLegPrefs = lastLegPrefs,
+                        initialAvoidances = lastAvoidances,
+                        isBusy = isGeocoding,
+                        onLegPrefsChange = { lastLegPrefs = it },
+                        onAvoidancesChange = { lastAvoidances = it },
                         onPlanRoute = { start, end, intermediates, legPrefs, avoidances ->
                             lastStartText = start
                             lastEndText = end
@@ -284,7 +292,7 @@ fun MapScreen() {
                             planRoute(
                                 context, routeService, mapRenderer, mapView,
                                 start, end, intermediates,
-                                legPrefs.firstOrNull() ?: RouteType.CURVY,
+                                legPrefs.firstOrNull() ?: RouteType.DIRECT,
                                 avoidances, currentLocation
                             ) { routes ->
                                 currentRoutes = routes
@@ -367,57 +375,69 @@ private fun DrawerItem(
 @Composable
 private fun BoxScope.PlanPanel(
     currentLocation: GeoPoint?,
-    hasRoute: Boolean,
     initialStart: String,
     initialEnd: String,
     initialIntermediates: List<String>,
-    onNavigate: () -> Unit,
+    initialLegPrefs: List<RouteType>,
+    initialAvoidances: Set<Avoidance>,
+    isBusy: Boolean,
+    onLegPrefsChange: (List<RouteType>) -> Unit,
+    onAvoidancesChange: (Set<Avoidance>) -> Unit,
     onPlanRoute: (String, String, List<String>, List<RouteType>, Set<Avoidance>) -> Unit
 ) {
+    val haptics = LocalHapticFeedback.current
     var startText by remember { mutableStateOf(initialStart) }
     var endText by remember { mutableStateOf(initialEnd) }
     var intermediates by remember { mutableStateOf(initialIntermediates) }
-    var selectedAvoidances by remember { mutableStateOf<Set<Avoidance>>(emptySet()) }
+    // Seeded from the hoisted session state so previously-chosen avoidances and
+    // per-leg curvature reappear when the panel is reopened. Changes are pushed
+    // back up immediately (not just on Go) via the on*Change callbacks.
+    var selectedAvoidances by remember { mutableStateOf(initialAvoidances) }
     var showPreferenceDialog by remember { mutableStateOf(false) }
     var showAvoidanceDialog by remember { mutableStateOf(false) }
     var editingLegIndex by remember { mutableStateOf(0) }
 
-    val legPrefs = remember { mutableStateListOf(RouteType.CURVY) }
+    val legPrefs = remember {
+        mutableStateListOf<RouteType>().apply {
+            addAll(initialLegPrefs.ifEmpty { listOf(RouteType.DIRECT) })
+        }
+    }
     LaunchedEffect(intermediates.size) {
         val needed = 1 + intermediates.size
-        while (legPrefs.size < needed) legPrefs.add(RouteType.CURVY)
+        var changed = false
+        while (legPrefs.size < needed) { legPrefs.add(RouteType.DIRECT); changed = true }
+        while (legPrefs.size > needed) { legPrefs.removeAt(legPrefs.size - 1); changed = true }
+        if (changed) onLegPrefsChange(legPrefs.toList())
     }
+
+    val canPlan = startText.isNotBlank() && endText.isNotBlank() && !isBusy
 
     Surface(
         modifier = Modifier.align(Alignment.BottomCenter),
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
         shadowElevation = 12.dp,
         tonalElevation = 3.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 520.dp)
+                .heightIn(max = 560.dp)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                LegChip(stringResource(R.string.leg_fmt, 1), legPrefs.getOrElse(0) { RouteType.CURVY }) {
-                    editingLegIndex = 0; showPreferenceDialog = true
-                }
-                intermediates.forEachIndexed { i, _ ->
-                    LegChip(stringResource(R.string.leg_fmt, i + 2), legPrefs.getOrElse(i + 1) { RouteType.CURVY }) {
-                        editingLegIndex = i + 1; showPreferenceDialog = true
-                    }
-                }
+            // Drag-handle affordance, the standard bottom-sheet grip.
+            Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .size(width = 32.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.outlineVariant)
+                )
             }
 
-            Spacer(Modifier.height(12.dp))
-
+            // ── Waypoints ──
             WaypointField(
                 icon = Icons.Default.Home, tint = BrandBlue,
                 hint = stringResource(R.string.start_location_hint), value = startText,
@@ -427,7 +447,7 @@ private fun BoxScope.PlanPanel(
             )
 
             intermediates.forEachIndexed { i, wp ->
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(6.dp))
                 WaypointField(
                     icon = Icons.Default.MyLocation, tint = AccentOrange,
                     hint = stringResource(R.string.via_point_hint, i + 1), value = wp,
@@ -438,7 +458,7 @@ private fun BoxScope.PlanPanel(
                 )
             }
 
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(6.dp))
             WaypointField(
                 icon = Icons.Default.Flag, tint = ErrorRed,
                 hint = stringResource(R.string.end_location_hint), value = endText,
@@ -447,67 +467,108 @@ private fun BoxScope.PlanPanel(
                 currentLocation = currentLocation
             )
 
-            Spacer(Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                onClick = { intermediates = intermediates + "" },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
             ) {
-                AssistChip(
-                    onClick = { editingLegIndex = 0; showPreferenceDialog = true },
-                    label = { Text(stringResource(R.string.curvature)) },
-                    leadingIcon = { Icon(imageVector = Icons.Outlined.Timeline, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                )
-                AssistChip(
-                    onClick = { showAvoidanceDialog = true },
-                    label = { Text(if (selectedAvoidances.isEmpty()) stringResource(R.string.avoidances) else stringResource(R.string.avoidances_fmt, selectedAvoidances.size)) },
-                    leadingIcon = { Icon(imageVector = Icons.Outlined.Shield, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                )
-                IconButton(onClick = { intermediates = intermediates + "" }) {
-                    Icon(Icons.Default.Add, null, tint = BrandBlue)
+                Icon(Icons.Default.Add, null, Modifier.size(18.dp), tint = BrandBlue)
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.add_stop), color = BrandBlue)
+            }
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(14.dp))
+
+            // ── Ride style: one-tap inline selection, no dialog ──
+            Text(
+                stringResource(R.string.ride_style),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(6.dp))
+            val allLegsSame = legPrefs.distinct().size <= 1
+            val shownStyle = if (allLegsSame) legPrefs.firstOrNull() else null
+            RideStyleSelector(shownStyle) { style ->
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                for (i in legPrefs.indices) legPrefs[i] = style
+                onLegPrefsChange(legPrefs.toList())
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                shownStyle?.let { stringResource(rideStyleDescription(it)) }
+                    ?: stringResource(R.string.mixed_leg_styles),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // Per-leg overrides only appear when the trip actually has multiple legs.
+            if (legPrefs.size > 1) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    legPrefs.forEachIndexed { i, pref ->
+                        LegChip(stringResource(R.string.leg_fmt, i + 1), pref) {
+                            editingLegIndex = i; showPreferenceDialog = true
+                        }
+                    }
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(14.dp))
+            AvoidanceSummaryRow(selectedAvoidances) { showAvoidanceDialog = true }
+
+            Spacer(Modifier.height(16.dp))
             Button(
                 onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     val im = intermediates.filter { it.isNotBlank() }
                     onPlanRoute(startText, endText, im, legPrefs.toList(), selectedAvoidances)
                 },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+                enabled = canPlan,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
             ) {
-                Text(stringResource(R.string.go), fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = onNavigate,
-                enabled = hasRoute,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Icon(Icons.Outlined.Route, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.start_ride), fontWeight = FontWeight.SemiBold)
+                if (isBusy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(stringResource(R.string.finding_route), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                } else {
+                    Icon(Icons.Outlined.Route, null, Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.find_route), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
             }
         }
     }
 
     if (showPreferenceDialog) {
         PreferenceDialog(
-            legPrefs.getOrElse(editingLegIndex) { RouteType.CURVY },
-            onSelect = { legPrefs[editingLegIndex] = it; showPreferenceDialog = false },
+            legPrefs.getOrElse(editingLegIndex) { RouteType.DIRECT },
+            onSelect = {
+                if (editingLegIndex in legPrefs.indices) legPrefs[editingLegIndex] = it
+                onLegPrefsChange(legPrefs.toList())
+                showPreferenceDialog = false
+            },
             onDismiss = { showPreferenceDialog = false }
         )
     }
     if (showAvoidanceDialog) {
         AvoidanceDialog(
             selectedAvoidances,
-            onUpdate = { selectedAvoidances = it; showAvoidanceDialog = false },
+            onUpdate = {
+                selectedAvoidances = it
+                onAvoidancesChange(it)
+                showAvoidanceDialog = false
+            },
             onDismiss = { showAvoidanceDialog = false }
         )
     }
@@ -542,11 +603,20 @@ private fun BoxScope.QuickRidePanel(
 
     Surface(
         modifier = Modifier.align(Alignment.BottomCenter),
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-        shadowElevation = 12.dp
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+        shadowElevation = 12.dp,
+        tonalElevation = 3.dp
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 20.dp)) {
+            Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .size(width = 32.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.outlineVariant)
+                )
+            }
             Text(stringResource(R.string.round_trip), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
 
@@ -817,19 +887,89 @@ private fun WaypointField(
     }
 }
 
+private fun rideStyleIcon(pref: RouteType): Pair<ImageVector, Color> = when (pref) {
+    RouteType.DIRECT -> Icons.Outlined.Speed to AccentOrange
+    RouteType.FAST -> Icons.Outlined.Navigation to BrandBlue
+    RouteType.CURVY -> Icons.Outlined.Timeline to BrandBlueLight
+    RouteType.EXTRA_CURVY -> Icons.Outlined.Landscape to ErrorRed
+}
+
+private fun rideStyleDescription(pref: RouteType): Int = when (pref) {
+    RouteType.DIRECT -> R.string.direct_desc
+    RouteType.FAST -> R.string.fast_desc
+    RouteType.CURVY -> R.string.curvy_desc
+    RouteType.EXTRA_CURVY -> R.string.extra_curvy_desc
+}
+
 @Composable
 private fun LegChip(label: String, pref: RouteType, onClick: () -> Unit) {
-    val (icon, color) = when (pref) {
-        RouteType.DIRECT -> Icons.Outlined.Speed to AccentOrange
-        RouteType.FAST -> Icons.Outlined.Navigation to BrandBlue
-        RouteType.CURVY -> Icons.Outlined.Timeline to BrandBlueLight
-        RouteType.EXTRA_CURVY -> Icons.Outlined.Landscape to ErrorRed
-    }
+    val (icon, color) = rideStyleIcon(pref)
     AssistChip(
         onClick = onClick,
-        label = { Text(label, fontSize = 11.sp) },
-        trailingIcon = { Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = color) }
+        label = { Text("$label · ${pref.shortLabel}", fontSize = 13.sp) },
+        leadingIcon = { Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = color) }
     )
+}
+
+/** Inline single-choice ride-style selector. Replaces the tap-open-dialog-tap-close flow. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RideStyleSelector(selected: RouteType?, onSelect: (RouteType) -> Unit) {
+    val styles = RouteType.entries
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        styles.forEachIndexed { index, style ->
+            SegmentedButton(
+                selected = style == selected,
+                onClick = { onSelect(style) },
+                shape = SegmentedButtonDefaults.itemShape(index, styles.size),
+                // Suppress the default check icon so four segments fit on narrow phones.
+                icon = {},
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = BrandBlue.copy(alpha = 0.16f),
+                    activeContentColor = BrandBlue,
+                    activeBorderColor = BrandBlue
+                )
+            ) {
+                Text(style.shortLabel, fontSize = 13.sp, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** Full-width row summarising selected avoidances and opening the multi-select dialog. */
+@Composable
+private fun AvoidanceSummaryRow(selected: Set<Avoidance>, onClick: () -> Unit) {
+    val summary = if (selected.isEmpty()) stringResource(R.string.avoid_none)
+                  else selected.joinToString(", ") { it.displayName }
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp).padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Outlined.Shield, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.avoid_label),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }
 
 @Composable

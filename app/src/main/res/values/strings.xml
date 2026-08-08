@@ -42,6 +42,11 @@
     <string name="clear">Clear</string>
     <string name="cancel">Cancel</string>
     <string name="go">Go</string>
+    <string name="find_route">Find route</string>
+    <string name="add_stop">Add stop</string>
+    <string name="avoid_label">Avoid</string>
+    <string name="avoid_none">Nothing avoided</string>
+    <string name="mixed_leg_styles">Legs use different styles — set per leg below</string>
     <string name="generate">Generate</string>
     <string name="ride">Ride</string>
     <string name="start_ride">Start Ride</string>
