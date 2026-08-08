@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.CheckCircle
@@ -32,6 +33,7 @@ fun OfflineMapManagerScreen(
     
     var showDeleteDialog by remember { mutableStateOf<OfflineRegion?>(null) }
     var showStorageWarning by remember { mutableStateOf<OfflineRegion?>(null) }
+    var showMeteredWarning by remember { mutableStateOf<OfflineRegion?>(null) }
 
     Scaffold(
         topBar = {
@@ -65,12 +67,13 @@ fun OfflineMapManagerScreen(
                     RegionCard(
                         region = region,
                         onDownload = {
-                            if (viewModel.hasEnoughStorage(region.id)) {
-                                viewModel.downloadRegion(region.id)
-                            } else {
-                                showStorageWarning = region
+                            when {
+                                !viewModel.hasEnoughStorage(region.id) -> showStorageWarning = region
+                                viewModel.isOnMeteredConnection() -> showMeteredWarning = region
+                                else -> viewModel.downloadRegion(region.id)
                             }
                         },
+                        onCancel = { viewModel.cancelDownload(region.id) },
                         onDelete = { showDeleteDialog = region }
                     )
                 }
@@ -121,6 +124,29 @@ fun OfflineMapManagerScreen(
             }
         )
     }
+
+    showMeteredWarning?.let { region ->
+        AlertDialog(
+            onDismissRequest = { showMeteredWarning = null },
+            title = { Text(stringResource(R.string.metered_connection_title)) },
+            text = { Text(stringResource(R.string.metered_connection_message, region.estimatedSizeMB)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.downloadRegion(region.id)
+                        showMeteredWarning = null
+                    }
+                ) {
+                    Text(stringResource(R.string.download_anyway))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMeteredWarning = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -159,6 +185,7 @@ fun StorageStatsCard(
 fun RegionCard(
     region: OfflineRegion,
     onDownload: () -> Unit,
+    onCancel: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
@@ -196,10 +223,14 @@ fun RegionCard(
                         )
                     }
                     DownloadStatus.DOWNLOADING -> {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(32.dp),
-                            strokeWidth = 3.dp
-                        )
+                        IconButton(onClick = onCancel) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = stringResource(R.string.cancel_download),
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
                     }
                     else -> {
                         IconButton(onClick = onDownload) {
@@ -229,7 +260,29 @@ fun RegionCard(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
-            
+
+            if (region.downloadStatus == DownloadStatus.DOWNLOADING) {
+                Spacer(modifier = Modifier.height(8.dp))
+                val progress = if (region.tileCount > 0) {
+                    (region.downloadedTiles.toFloat() / region.tileCount.toFloat()).coerceIn(0f, 1f)
+                } else 0f
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(
+                        R.string.download_progress_fmt,
+                        region.downloadedTiles,
+                        region.tileCount,
+                        (progress * 100).toInt()
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             if (region.downloadStatus == DownloadStatus.DOWNLOADED) {
                 Spacer(modifier = Modifier.height(8.dp))
                 

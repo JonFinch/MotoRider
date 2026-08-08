@@ -1,6 +1,11 @@
 package com.motorider.ui.screen
 
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -32,6 +37,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
@@ -61,13 +67,17 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.TilesOverlay
 import java.util.concurrent.atomic.AtomicInteger
 
 enum class Screen { Plan, QuickRide, Search, OfflineMaps }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MapScreen() {
+fun MapScreen(
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onThemeModeChange: (ThemeMode) -> Unit = {}
+) {
     val context = LocalContext.current
 
     var mapView by remember { mutableStateOf<MapView?>(null) }
@@ -98,6 +108,28 @@ fun MapScreen() {
 
     var distanceUnitMiles by rememberSaveable { mutableStateOf(true) }
 
+    // Tracked so the rider knows they're seeing cached map tiles and that routing
+    // calls will fail - not tied to offline routing (that's a much bigger, separate
+    // undertaking), just an honest indicator of current connectivity.
+    var isOffline by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+        fun refreshOfflineState() {
+            val caps = connectivityManager.activeNetwork?.let { connectivityManager.getNetworkCapabilities(it) }
+            isOffline = caps == null || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        }
+
+        refreshOfflineState()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) = refreshOfflineState()
+            override fun onLost(network: Network) = refreshOfflineState()
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) = refreshOfflineState()
+        }
+        connectivityManager.registerNetworkCallback(NetworkRequest.Builder().build(), callback)
+        onDispose { connectivityManager.unregisterNetworkCallback(callback) }
+    }
+
     LaunchedEffect(currentScreen) {
         quickRidePanelVisible = true
     }
@@ -113,6 +145,15 @@ fun MapScreen() {
             mapRenderer.renderMotorcycleRoute(mapView, geometry)
             mapView?.invalidate()
         }
+    }
+
+    // OSM's default tiles are bright white - a real glare hazard on a handlebar-mounted
+    // phone at night. INVERT_COLORS is osmdroid's own built-in filter, documented in
+    // its source as existing specifically to support night mode.
+    val isDarkTheme = LocalIsDarkTheme.current
+    LaunchedEffect(isDarkTheme, mapView) {
+        mapView?.mapOverlay?.setColorFilter(if (isDarkTheme) TilesOverlay.INVERT_COLORS else null)
+        mapView?.invalidate()
     }
 
     BackHandler(enabled = drawerState.isOpen) {
@@ -164,14 +205,14 @@ fun MapScreen() {
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Straighten, null, tint = OnSurfaceVariantLight, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Outlined.Straighten, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                         Spacer(Modifier.width(12.dp))
                         Column {
-                            Text(stringResource(R.string.settings_distance_units), style = MaterialTheme.typography.bodyMedium, color = OnSurfaceLight)
+                            Text(stringResource(R.string.settings_distance_units), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                             Text(
                                 if (distanceUnitMiles) stringResource(R.string.settings_miles) else stringResource(R.string.settings_kilometres),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = OnSurfaceVariantLight
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -182,11 +223,29 @@ fun MapScreen() {
                     )
                 }
 
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Outlined.DarkMode, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            stringResource(R.string.settings_theme),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    ThemeModeSelector(themeMode, onThemeModeChange)
+                }
+
                 Spacer(Modifier.weight(1f))
                 Text(
                     stringResource(R.string.drawer_tagline),
                     style = MaterialTheme.typography.bodySmall,
-                    color = OnSurfaceVariantLight,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp)
                 )
             }
@@ -226,6 +285,19 @@ fun MapScreen() {
                         else quickRidePanelVisible = !quickRidePanelVisible
                     }
                 )
+
+                AnimatedVisibility(
+                    visible = isOffline,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.align(Alignment.TopCenter)
+                ) {
+                    RouteWarningBanner(
+                        stringResource(R.string.offline_indicator),
+                        AccentOrange,
+                        modifier = Modifier.padding(top = 12.dp, start = 16.dp, end = 16.dp)
+                    )
+                }
 
                 AnimatedVisibility(
                     visible = routeInfoVisible && currentRoutes.isNotEmpty(),
@@ -442,7 +514,7 @@ private fun BoxScope.PlanPanel(
                 icon = Icons.Default.Home, tint = BrandBlue,
                 hint = stringResource(R.string.start_location_hint), value = startText,
                 onValueChange = { startText = it },
-                bgColor = StartLocationBgLight,
+                bgColor = if (LocalIsDarkTheme.current) StartLocationBgDark else StartLocationBgLight,
                 currentLocation = currentLocation
             )
 
@@ -452,7 +524,7 @@ private fun BoxScope.PlanPanel(
                     icon = Icons.Default.MyLocation, tint = AccentOrange,
                     hint = stringResource(R.string.via_point_hint, i + 1), value = wp,
                     onValueChange = { value -> intermediates = intermediates.toMutableList().also { it[i] = value } },
-                    bgColor = ViaLocationBgLight,
+                    bgColor = if (LocalIsDarkTheme.current) ViaLocationBgDark else ViaLocationBgLight,
                     currentLocation = currentLocation,
                     onRemove = { intermediates = intermediates.toMutableList().also { it.removeAt(i) } }
                 )
@@ -463,7 +535,7 @@ private fun BoxScope.PlanPanel(
                 icon = Icons.Default.Flag, tint = ErrorRed,
                 hint = stringResource(R.string.end_location_hint), value = endText,
                 onValueChange = { endText = it },
-                bgColor = EndLocationBgLight,
+                bgColor = if (LocalIsDarkTheme.current) EndLocationBgDark else EndLocationBgLight,
                 currentLocation = currentLocation
             )
 
@@ -625,7 +697,7 @@ private fun BoxScope.QuickRidePanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(stringResource(R.string.distance), style = MaterialTheme.typography.labelMedium, color = OnSurfaceVariantLight)
+                Text(stringResource(R.string.distance), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
                     "${"%.0f".format(displayValue)} $unitLabel",
                     fontWeight = FontWeight.Bold,
@@ -650,12 +722,12 @@ private fun BoxScope.QuickRidePanel(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("10", fontSize = 11.sp, color = Gray400)
-                Text("${"%.0f".format(displayMax)}", fontSize = 11.sp, color = Gray400)
+                Text("10", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${"%.0f".format(displayMax)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Spacer(Modifier.height(16.dp))
-            Text(stringResource(R.string.direction), style = MaterialTheme.typography.labelMedium, color = OnSurfaceVariantLight)
+            Text(stringResource(R.string.direction), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             CompassSelector(
                 directionDegrees = selectedDirection,
@@ -814,7 +886,7 @@ private fun WaypointField(
                         },
                         modifier = Modifier.size(48.dp)
                     ) {
-                        Icon(Icons.Default.Clear, stringResource(R.string.clear), modifier = Modifier.size(24.dp), tint = Gray600)
+                        Icon(Icons.Default.Clear, stringResource(R.string.clear), modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 IconButton(onClick = {
@@ -833,7 +905,7 @@ private fun WaypointField(
                 }
                 if (onRemove != null) {
                     IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Default.Close, stringResource(R.string.remove), modifier = Modifier.size(24.dp), tint = Gray600)
+                        Icon(Icons.Default.Close, stringResource(R.string.remove), modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -861,7 +933,7 @@ private fun WaypointField(
                         ) {
                             Icon(Icons.Default.ErrorOutline, null, modifier = Modifier.size(16.dp), tint = ErrorRed)
                             Spacer(Modifier.width(10.dp))
-                            Text(stringResource(R.string.no_results_found), fontSize = 15.sp, color = OnSurfaceVariantLight)
+                            Text(stringResource(R.string.no_results_found), fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     suggestions.take(5).forEach { s ->
@@ -878,7 +950,7 @@ private fun WaypointField(
                         ) {
                             Icon(Icons.Default.LocationOn, null, modifier = Modifier.size(20.dp), tint = BrandBlue)
                             Spacer(Modifier.width(10.dp))
-                            Text(s.displayName, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = OnSurfaceLight)
+                            Text(s.displayName, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
@@ -931,6 +1003,34 @@ private fun RideStyleSelector(selected: RouteType?, onSelect: (RouteType) -> Uni
                 )
             ) {
                 Text(style.shortLabel, fontSize = 13.sp, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** Inline Light/System/Dark selector in the drawer, same control as [RideStyleSelector]. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThemeModeSelector(selected: ThemeMode, onSelect: (ThemeMode) -> Unit) {
+    val modes = listOf(
+        ThemeMode.LIGHT to R.string.theme_light,
+        ThemeMode.SYSTEM to R.string.theme_system,
+        ThemeMode.DARK to R.string.theme_dark
+    )
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        modes.forEachIndexed { index, (mode, labelRes) ->
+            SegmentedButton(
+                selected = mode == selected,
+                onClick = { onSelect(mode) },
+                shape = SegmentedButtonDefaults.itemShape(index, modes.size),
+                icon = {},
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = BrandBlue.copy(alpha = 0.16f),
+                    activeContentColor = BrandBlue,
+                    activeBorderColor = BrandBlue
+                )
+            ) {
+                Text(stringResource(labelRes), fontSize = 13.sp, maxLines = 1)
             }
         }
     }
@@ -994,7 +1094,7 @@ private fun PreferenceDialog(current: RouteType, onSelect: (RouteType) -> Unit, 
                         Spacer(Modifier.width(8.dp))
                         Column {
                             Text(pref.displayName, fontWeight = if (pref == current) FontWeight.Bold else FontWeight.Normal)
-                            Text(stringResource(descRes), style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariantLight)
+                            Text(stringResource(descRes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -1034,9 +1134,13 @@ private fun AvoidanceDialog(
 // ─── Route Info Card ────────────────────────────────────────────────────────
 
 @Composable
-private fun RouteWarningBanner(message: String, tint: androidx.compose.ui.graphics.Color) {
+private fun RouteWarningBanner(
+    message: String,
+    tint: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        modifier = modifier.fillMaxWidth().padding(vertical = 6.dp),
         shape = RoundedCornerShape(10.dp),
         color = tint.copy(alpha = 0.12f)
     ) {
@@ -1133,7 +1237,7 @@ private fun StatItem(icon: ImageVector, label: String, value: String) {
         Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = BrandBlue)
         Spacer(Modifier.height(2.dp))
         Text(value, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = OnSurfaceVariantLight)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -1152,6 +1256,15 @@ private fun CompassSelector(
         "N" to 0f, "NE" to 45f, "E" to 90f, "SE" to 135f,
         "S" to 180f, "SW" to 225f, "W" to 270f, "NW" to 315f
     )
+
+    // Canvas's draw lambda runs outside composition, so MaterialTheme.colorScheme
+    // cannot be read there directly - resolve every color here, in composable scope.
+    val outerRingColor = MaterialTheme.colorScheme.outlineVariant
+    val innerRingColor = MaterialTheme.colorScheme.surfaceVariant
+    val cardinalTickColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val minorTickColor = MaterialTheme.colorScheme.outlineVariant
+    val cardinalLabelColor = MaterialTheme.colorScheme.onSurface.toArgb()
+    val minorLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
 
     Box(
         modifier = modifier.pointerInput(Unit) {
@@ -1177,7 +1290,7 @@ private fun CompassSelector(
 
             // Outer ring
             drawCircle(
-                color = Gray300,
+                color = outerRingColor,
                 radius = radius,
                 center = center,
                 style = Stroke(width = 2.5.dp.toPx())
@@ -1185,7 +1298,7 @@ private fun CompassSelector(
 
             // Inner ring (subtle)
             drawCircle(
-                color = Gray200,
+                color = innerRingColor,
                 radius = radius * 0.55f,
                 center = center,
                 style = Stroke(width = 1.dp.toPx())
@@ -1202,7 +1315,7 @@ private fun CompassSelector(
                 val isCardinal = deg % 90f == 0f
 
                 drawLine(
-                    color = if (isCardinal) Gray600 else Gray400,
+                    color = if (isCardinal) cardinalTickColor else minorTickColor,
                     start = Offset(center.x + innerR * sr, center.y - innerR * cr),
                     end = Offset(center.x + outerR * sr, center.y - outerR * cr),
                     strokeWidth = if (isCardinal) 2.5.dp.toPx() else 1.5.dp.toPx()
@@ -1213,7 +1326,7 @@ private fun CompassSelector(
                 val lx = center.x + labelR * sr
                 val ly = center.y - labelR * cr
                 labelPaint.textSize = if (isCardinal) 12.dp.toPx() else 9.dp.toPx()
-                labelPaint.color = if (isCardinal) 0xFF424242.toInt() else 0xFF868E96.toInt()
+                labelPaint.color = if (isCardinal) cardinalLabelColor else minorLabelColor
                 labelPaint.isFakeBoldText = isCardinal
                 drawContext.canvas.nativeCanvas.drawText(label, lx, ly + labelPaint.textSize / 3f, labelPaint)
             }

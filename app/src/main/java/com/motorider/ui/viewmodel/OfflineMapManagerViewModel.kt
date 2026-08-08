@@ -1,6 +1,8 @@
 package com.motorider.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
+import android.net.ConnectivityManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.motorider.data.OfflineRegionRepository
@@ -15,14 +17,14 @@ import kotlinx.coroutines.launch
 
 class OfflineMapManagerViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository = OfflineRegionRepository(application)
+    private val repository = OfflineRegionRepository.getInstance(application)
     private val storageManager = TileStorageManager(application)
 
     val regions: StateFlow<List<OfflineRegion>> = repository.regions
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.Lazily,
-            initialValue = listOf(OfflineRegion.SOUTH_EAST_UK)
+            initialValue = OfflineRegion.DEFAULTS
         )
 
     val storageStats: StateFlow<TileStorageManager.StorageStats> = kotlinx.coroutines.flow.flow {
@@ -39,10 +41,16 @@ class OfflineMapManagerViewModel(application: Application) : AndroidViewModel(ap
 
     private fun initializeDefaultRegions() {
         viewModelScope.launch {
-            val existingRegion = repository.getRegionById(OfflineRegion.SOUTH_EAST_UK.id)
-            
-            if (existingRegion == null) {
-                val region = OfflineRegion.SOUTH_EAST_UK
+            for (region in OfflineRegion.DEFAULTS) {
+                val existing = repository.getRegionById(region.id)
+
+                // The DEFAULTS constants carry tileCount/estimatedSizeMB of 0 - the real
+                // values can only be computed at runtime from the bounds. Backfill both
+                // when they haven't been sized yet: a fresh install (existing == null) OR
+                // a region persisted with a zero count by an earlier build (which showed
+                // "0 tiles / 0.0MB" and a broken 1/0 progress bar).
+                if (existing != null && existing.tileCount > 0) continue
+
                 val tileCount = TileStorageManager.calculateTileCount(
                     region.minLat,
                     region.maxLat,
@@ -52,13 +60,16 @@ class OfflineMapManagerViewModel(application: Application) : AndroidViewModel(ap
                     region.maxZoom
                 )
                 val estimatedSize = TileStorageManager.estimateStorageSize(tileCount)
-                
-                val regionWithStats = region.copy(
-                    tileCount = tileCount,
-                    estimatedSizeMB = estimatedSize
-                )
-                
-                repository.insertRegion(regionWithStats)
+
+                if (existing != null) {
+                    repository.updateRegion(
+                        existing.copy(tileCount = tileCount, estimatedSizeMB = estimatedSize)
+                    )
+                } else {
+                    repository.insertRegion(
+                        region.copy(tileCount = tileCount, estimatedSizeMB = estimatedSize)
+                    )
+                }
             }
         }
     }
@@ -131,5 +142,15 @@ class OfflineMapManagerViewModel(application: Application) : AndroidViewModel(ap
     fun getAvailableStorageMB(): Double {
         val stats = storageManager.getStorageStats()
         return stats.availableBytes / (1024.0 * 1024.0)
+    }
+
+    /**
+     * A region download is tens to hundreds of MB - worth a confirmation before
+     * silently burning a rider's mobile data plan.
+     */
+    fun isOnMeteredConnection(): Boolean {
+        val cm = getApplication<Application>()
+            .getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        return cm.isActiveNetworkMetered
     }
 }

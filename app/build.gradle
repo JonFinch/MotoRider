@@ -24,6 +24,11 @@ android {
             // -PmotoRiderApiBase=https://... when a hosted API exists.
             buildConfigField 'String', 'ROUTING_API_BASE_URL',
                     "\"${project.findProperty('motoRiderApiBase') ?: 'https://api.motorider.invalid'}\""
+            // Map tiles. Defaults to public OSM; override with the self-hosted
+            // tileserver-gl base once it's productionised:
+            // -PmotoRiderTileBase=https://tiles.motorider.example/styles/basic-preview
+            buildConfigField 'String', 'TILE_SERVER_BASE_URL',
+                    "\"${project.findProperty('motoRiderTileBase') ?: 'https://tile.openstreetmap.org'}\""
         }
         debug {
             debuggable = true
@@ -32,6 +37,12 @@ android {
             // e.g. ./gradlew installDebug -PmotoRiderDevApiBase=http://192.168.68.52:8080
             buildConfigField 'String', 'ROUTING_API_BASE_URL',
                     "\"${project.findProperty('motoRiderDevApiBase') ?: 'http://10.0.2.2:8080'}\""
+            // Map tiles. Defaults to public OSM so the app works with no local
+            // tile server. Point at the self-hosted tileserver-gl (compose service
+            // on host port 8081) with the host's LAN IP:
+            // -PmotoRiderTileBase=http://192.168.68.52:8081/styles/basic-preview
+            buildConfigField 'String', 'TILE_SERVER_BASE_URL',
+                    "\"${project.findProperty('motoRiderTileBase') ?: 'https://tile.openstreetmap.org'}\""
         }
     }
 

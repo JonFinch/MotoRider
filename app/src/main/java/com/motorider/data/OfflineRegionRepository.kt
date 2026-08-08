@@ -10,14 +10,35 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-class OfflineRegionRepository(private val context: Context) {
-    
-    private val regionsFile = File(context.filesDir, "offline_regions.json")
+/**
+ * Process-wide singleton.
+ *
+ * The download runs in [com.motorider.services.TileDownloadService] while the UI
+ * observes from [com.motorider.ui.viewmodel.OfflineMapManagerViewModel]. If each
+ * constructed its own repository, they'd hold independent in-memory StateFlows over
+ * the same file, so the service's progress writes would never reach the screen - the
+ * download would run invisibly. A shared instance means one StateFlow that both the
+ * service updates and the UI collects.
+ */
+class OfflineRegionRepository private constructor(context: Context) {
+
+    private val appContext = context.applicationContext
+    private val regionsFile = File(appContext.filesDir, "offline_regions.json")
     private val _regions = MutableStateFlow<List<OfflineRegion>>(emptyList())
     val regions: StateFlow<List<OfflineRegion>> = _regions.asStateFlow()
-    
+
     init {
         loadRegions()
+    }
+
+    companion object {
+        @Volatile
+        private var INSTANCE: OfflineRegionRepository? = null
+
+        fun getInstance(context: Context): OfflineRegionRepository =
+            INSTANCE ?: synchronized(this) {
+                INSTANCE ?: OfflineRegionRepository(context).also { INSTANCE = it }
+            }
     }
     
     private fun loadRegions() {
@@ -52,10 +73,10 @@ class OfflineRegionRepository(private val context: Context) {
                 _regions.value = regionList
             } catch (e: Exception) {
                 e.printStackTrace()
-                _regions.value = listOf(OfflineRegion.SOUTH_EAST_UK)
+                _regions.value = OfflineRegion.DEFAULTS
             }
         } else {
-            _regions.value = listOf(OfflineRegion.SOUTH_EAST_UK)
+            _regions.value = OfflineRegion.DEFAULTS
             saveRegions()
         }
     }
@@ -93,6 +114,9 @@ class OfflineRegionRepository(private val context: Context) {
         return _regions.value.find { it.id == regionId }
     }
     
+    // Synchronized because the download service (IO thread) and the UI (main thread)
+    // now share this instance and both mutate the region list.
+    @Synchronized
     fun updateRegion(region: OfflineRegion) {
         val index = _regions.value.indexOfFirst { it.id == region.id }
         if (index >= 0) {
@@ -113,6 +137,7 @@ class OfflineRegionRepository(private val context: Context) {
         updateRegion(region.copy(downloadStatus = status, downloadedAt = downloadedAt))
     }
     
+    @Synchronized
     fun insertRegion(region: OfflineRegion) {
         if (_regions.value.none { it.id == region.id }) {
             _regions.value = _regions.value + region

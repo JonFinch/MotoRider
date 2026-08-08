@@ -30,7 +30,7 @@ class TileDownloadService : Service() {
     override fun onCreate() {
         super.onCreate()
         storageManager = TileStorageManager(this)
-        repository = OfflineRegionRepository(this)
+        repository = OfflineRegionRepository.getInstance(this)
         createNotificationChannel()
     }
 
@@ -73,37 +73,41 @@ class TileDownloadService : Service() {
                 repository.updateDownloadStatus(regionId, DownloadStatus.DOWNLOADING, null)
                 
                 val totalTiles = calculateTotalTiles(region)
-                var downloadedTiles = 0L
-                
+                var processedTiles = 0L
+                var lastPercent = -1
+
                 for (zoom in region.minZoom..region.maxZoom) {
                     if (isCancelled) break
-                    
+
                     val minX = TileStorageManager.lonToTileX(region.minLon, zoom)
                     val maxX = TileStorageManager.lonToTileX(region.maxLon, zoom)
                     val minY = TileStorageManager.latToTileY(region.maxLat, zoom)
                     val maxY = TileStorageManager.latToTileY(region.minLat, zoom)
-                    
+
                     for (x in minX..maxX) {
                         if (isCancelled) break
-                        
+
                         for (y in minY..maxY) {
                             if (isCancelled) break
-                            
+
+                            // Count every tile we advance past - downloaded, already
+                            // cached, or failed - so the bar reflects progress through
+                            // the whole set and always reaches 100%.
                             if (!storageManager.isTileDownloaded(zoom, x, y)) {
-                                val success = storageManager.downloadTile(zoom, x, y)
-                                
-                                if (success) {
-                                    downloadedTiles++
-                                    
-                                    val progress = ((downloadedTiles.toDouble() / totalTiles) * 100).toInt()
-                                    updateNotification(getString(R.string.downloading_tiles), progress, 100)
-                                    
-                                    if (downloadedTiles % 10 == 0L) {
-                                        repository.updateDownloadProgress(regionId, DownloadStatus.DOWNLOADING, downloadedTiles)
-                                    }
-                                }
-                            } else {
-                                downloadedTiles++
+                                storageManager.downloadTile(zoom, x, y)
+                            }
+                            processedTiles++
+
+                            // Only push an update when the whole-number percent ticks
+                            // over: per-tile updates spammed NotificationManager past its
+                            // rate limit and churned the UI StateFlow needlessly.
+                            val percent = if (totalTiles > 0) {
+                                ((processedTiles.toDouble() / totalTiles) * 100).toInt()
+                            } else 0
+                            if (percent != lastPercent) {
+                                lastPercent = percent
+                                updateNotification(getString(R.string.downloading_tiles), percent, 100)
+                                repository.updateDownloadProgress(regionId, DownloadStatus.DOWNLOADING, processedTiles)
                             }
                         }
                     }
@@ -111,8 +115,8 @@ class TileDownloadService : Service() {
                 
                 if (!isCancelled) {
                     repository.updateDownloadStatus(regionId, DownloadStatus.DOWNLOADED, System.currentTimeMillis())
-                    repository.updateDownloadProgress(regionId, DownloadStatus.DOWNLOADED, downloadedTiles)
-                    
+                    repository.updateDownloadProgress(regionId, DownloadStatus.DOWNLOADED, processedTiles)
+
                     showCompleteNotification(getString(R.string.download_complete))
                 } else {
                     repository.updateDownloadStatus(regionId, DownloadStatus.NOT_DOWNLOADED, null)

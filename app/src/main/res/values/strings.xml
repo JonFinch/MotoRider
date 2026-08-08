@@ -17,6 +17,10 @@
     <string name="settings_distance_units">Distance Units</string>
     <string name="settings_kilometres">Kilometres (km)</string>
     <string name="settings_miles">Miles (mi)</string>
+    <string name="settings_theme">Theme</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_system">System</string>
+    <string name="theme_dark">Dark</string>
 
     <!-- Routing -->
     <string name="start_navigation">Start Navigation</string>
@@ -156,4 +160,10 @@
     <string name="confirm_delete_message">Are you sure you want to delete the offline map for %s?</string>
     <string name="insufficient_storage">Insufficient storage space</string>
     <string name="storage_required" formatted="false">%.1f MB required, %.1f MB available</string>
+    <string name="cancel_download">Cancel download</string>
+    <string name="download_progress_fmt">%d / %d tiles (%d%%)</string>
+    <string name="metered_connection_title">You\'re on mobile data</string>
+    <string name="metered_connection_message" formatted="false">This download is about %.1f MB. Continue on mobile data?</string>
+    <string name="download_anyway">Download anyway</string>
+    <string name="offline_indicator">No connection — showing cached maps. Routing needs a connection.</string>
 </resources>

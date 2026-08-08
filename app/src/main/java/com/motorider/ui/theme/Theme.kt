@@ -4,6 +4,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 
 private val LightScheme = lightColorScheme(
     primary = BrandBlue,
@@ -47,14 +49,23 @@ private val DarkScheme = darkColorScheme(
     onError = OnError
 )
 
+// Whether the resolved (not raw-system) theme decision is dark - accounts for the
+// user's explicit Light/Dark/System override, not just isSystemInDarkTheme().
+// Composables that need to pick between a light-mode and dark-mode color variant
+// (e.g. waypoint field backgrounds) should read this rather than re-querying the
+// system setting directly.
+val LocalIsDarkTheme = staticCompositionLocalOf { false }
+
 @Composable
 fun MotoRiderTheme(
     darkTheme: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkScheme else LightScheme,
-        typography = Typography,
-        content = content
-    )
+    CompositionLocalProvider(LocalIsDarkTheme provides darkTheme) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) DarkScheme else LightScheme,
+            typography = Typography,
+            content = content
+        )
+    }
 }
