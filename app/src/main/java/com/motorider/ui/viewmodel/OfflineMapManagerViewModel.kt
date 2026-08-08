@@ -10,10 +10,12 @@ import com.motorider.models.DownloadStatus
 import com.motorider.models.OfflineRegion
 import com.motorider.services.TileDownloadService
 import com.motorider.services.TileStorageManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class OfflineMapManagerViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -45,12 +47,7 @@ class OfflineMapManagerViewModel(application: Application) : AndroidViewModel(ap
                 val existing = repository.getRegionById(region.id)
 
                 // The DEFAULTS constants carry tileCount/estimatedSizeMB of 0 - the real
-                // values can only be computed at runtime from the bounds. Backfill both
-                // when they haven't been sized yet: a fresh install (existing == null) OR
-                // a region persisted with a zero count by an earlier build (which showed
-                // "0 tiles / 0.0MB" and a broken 1/0 progress bar).
-                if (existing != null && existing.tileCount > 0) continue
-
+                // values can only be computed at runtime from the bounds.
                 val tileCount = TileStorageManager.calculateTileCount(
                     region.minLat,
                     region.maxLat,
@@ -60,19 +57,36 @@ class OfflineMapManagerViewModel(application: Application) : AndroidViewModel(ap
                     region.maxZoom
                 )
                 val estimatedSize = TileStorageManager.estimateStorageSize(tileCount)
+                val sized = region.copy(tileCount = tileCount, estimatedSizeMB = estimatedSize)
 
-                if (existing != null) {
-                    repository.updateRegion(
-                        existing.copy(tileCount = tileCount, estimatedSizeMB = estimatedSize)
-                    )
-                } else {
-                    repository.insertRegion(
-                        region.copy(tileCount = tileCount, estimatedSizeMB = estimatedSize)
-                    )
+                when {
+                    // Fresh install - seed with the sized definition.
+                    existing == null -> repository.insertRegion(sized)
+
+                    // The bundled definition changed (e.g. a lower max zoom): the stored
+                    // tileCount and any prior download no longer describe this region, so
+                    // reset it to the new definition (NOT_DOWNLOADED, count recomputed).
+                    definitionChanged(existing, region) -> repository.updateRegion(sized)
+
+                    // Same definition but never sized (persisted 0 by an earlier build,
+                    // which showed "0 tiles / 0.0MB" and a broken 1/0 bar) - backfill.
+                    existing.tileCount != tileCount || existing.estimatedSizeMB != estimatedSize ->
+                        repository.updateRegion(
+                            existing.copy(tileCount = tileCount, estimatedSizeMB = estimatedSize)
+                        )
                 }
             }
         }
     }
+
+    /** True when a stored region's bounds or zoom range differ from the bundled default. */
+    private fun definitionChanged(stored: OfflineRegion, default: OfflineRegion): Boolean =
+        stored.minZoom != default.minZoom ||
+            stored.maxZoom != default.maxZoom ||
+            stored.minLat != default.minLat ||
+            stored.maxLat != default.maxLat ||
+            stored.minLon != default.minLon ||
+            stored.maxLon != default.maxLon
 
     fun downloadRegion(regionId: String) {
         viewModelScope.launch {
@@ -92,23 +106,31 @@ class OfflineMapManagerViewModel(application: Application) : AndroidViewModel(ap
     fun deleteRegion(regionId: String) {
         viewModelScope.launch {
             val region = repository.getRegionById(regionId) ?: return@launch
-            
-            storageManager.deleteRegionTiles(
-                region.minLat,
-                region.maxLat,
-                region.minLon,
-                region.maxLon,
-                region.minZoom,
-                region.maxZoom
+
+            // Flip the card straight away so the UI feels instant, then do the actual
+            // work off the main thread.
+            repository.updateRegion(
+                region.copy(
+                    downloadStatus = DownloadStatus.NOT_DOWNLOADED,
+                    downloadedAt = null,
+                    downloadedTiles = 0
+                )
             )
-            
-            val updatedRegion = region.copy(
-                downloadStatus = DownloadStatus.NOT_DOWNLOADED,
-                downloadedAt = null,
-                downloadedTiles = 0
-            )
-            
-            repository.updateRegion(updatedRegion)
+
+            // deleteRegionTiles is a blocking SQLite sweep over every zoom level. On
+            // viewModelScope's Dispatchers.Main.immediate it would run synchronously and
+            // freeze the UI (the confirm dialog visibly hangs before dismissing), so push
+            // it to the IO dispatcher.
+            withContext(Dispatchers.IO) {
+                storageManager.deleteRegionTiles(
+                    region.minLat,
+                    region.maxLat,
+                    region.minLon,
+                    region.maxLon,
+                    region.minZoom,
+                    region.maxZoom
+                )
+            }
         }
     }
 

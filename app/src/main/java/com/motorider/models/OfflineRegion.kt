@@ -16,7 +16,7 @@ data class OfflineRegion(
     val minLon: Double,
     val maxLon: Double,
     val minZoom: Int = 10,
-    val maxZoom: Int = 16,
+    val maxZoom: Int = 14,
     val tileCount: Long = 0,
     val estimatedSizeMB: Double = 0.0,
     val downloadStatus: DownloadStatus = DownloadStatus.NOT_DOWNLOADED,
@@ -36,7 +36,7 @@ data class OfflineRegion(
             minLon = -0.8,
             maxLon = 1.5,
             minZoom = 10,
-            maxZoom = 16
+            maxZoom = 14
         )
 
         val SOUTH_WEST_UK = OfflineRegion(
@@ -48,7 +48,7 @@ data class OfflineRegion(
             minLon = -5.75,
             maxLon = -2.9,
             minZoom = 10,
-            maxZoom = 16
+            maxZoom = 14
         )
 
         val WALES = OfflineRegion(
@@ -60,7 +60,7 @@ data class OfflineRegion(
             minLon = -5.3,
             maxLon = -2.6,
             minZoom = 10,
-            maxZoom = 16
+            maxZoom = 14
         )
 
         val PEAK_AND_LAKE_DISTRICT = OfflineRegion(
@@ -72,7 +72,7 @@ data class OfflineRegion(
             minLon = -3.4,
             maxLon = -1.4,
             minZoom = 10,
-            maxZoom = 16
+            maxZoom = 14
         )
 
         val SCOTTISH_HIGHLANDS = OfflineRegion(
@@ -84,7 +84,7 @@ data class OfflineRegion(
             minLon = -6.0,
             maxLon = -2.8,
             minZoom = 10,
-            maxZoom = 16
+            maxZoom = 14
         )
 
         /** Regions offered out of the box. Custom user-drawn regions are a future addition. */

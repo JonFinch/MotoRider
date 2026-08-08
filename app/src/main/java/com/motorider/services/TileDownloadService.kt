@@ -15,6 +15,8 @@ import com.motorider.data.OfflineRegionRepository
 import com.motorider.models.DownloadStatus
 import com.motorider.models.OfflineRegion
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import java.util.concurrent.atomic.AtomicLong
 
 class TileDownloadService : Service() {
 
@@ -25,7 +27,7 @@ class TileDownloadService : Service() {
     private var downloadJob: Job? = null
     
     private var currentRegionId: String? = null
-    private var isCancelled = false
+    @Volatile private var isCancelled = false
 
     override fun onCreate() {
         super.onCreate()
@@ -71,51 +73,59 @@ class TileDownloadService : Service() {
                 }
                 
                 repository.updateDownloadStatus(regionId, DownloadStatus.DOWNLOADING, null)
-                
+
                 val totalTiles = calculateTotalTiles(region)
-                var processedTiles = 0L
-                var lastPercent = -1
+                // Shared across the parallel workers below.
+                val processed = AtomicLong(0)
+                val lastUpdateMs = AtomicLong(0)
 
-                for (zoom in region.minZoom..region.maxZoom) {
-                    if (isCancelled) break
-
-                    val minX = TileStorageManager.lonToTileX(region.minLon, zoom)
-                    val maxX = TileStorageManager.lonToTileX(region.maxLon, zoom)
-                    val minY = TileStorageManager.latToTileY(region.maxLat, zoom)
-                    val maxY = TileStorageManager.latToTileY(region.minLat, zoom)
-
-                    for (x in minX..maxX) {
-                        if (isCancelled) break
-
-                        for (y in minY..maxY) {
-                            if (isCancelled) break
-
-                            // Count every tile we advance past - downloaded, already
-                            // cached, or failed - so the bar reflects progress through
-                            // the whole set and always reaches 100%.
-                            if (!storageManager.isTileDownloaded(zoom, x, y)) {
-                                storageManager.downloadTile(zoom, x, y)
+                coroutineScope {
+                    // Producer: enumerate every tile in the region into a bounded channel.
+                    val tiles = Channel<TileCoord>(capacity = 512)
+                    launch {
+                        try {
+                            for (zoom in region.minZoom..region.maxZoom) {
+                                if (isCancelled) break
+                                val minX = TileStorageManager.lonToTileX(region.minLon, zoom)
+                                val maxX = TileStorageManager.lonToTileX(region.maxLon, zoom)
+                                val minY = TileStorageManager.latToTileY(region.maxLat, zoom)
+                                val maxY = TileStorageManager.latToTileY(region.minLat, zoom)
+                                for (x in minX..maxX) {
+                                    if (isCancelled) break
+                                    for (y in minY..maxY) {
+                                        if (isCancelled) break
+                                        tiles.send(TileCoord(zoom, x, y))
+                                    }
+                                }
                             }
-                            processedTiles++
+                        } finally {
+                            tiles.close()
+                        }
+                    }
 
-                            // Only push an update when the whole-number percent ticks
-                            // over: per-tile updates spammed NotificationManager past its
-                            // rate limit and churned the UI StateFlow needlessly.
-                            val percent = if (totalTiles > 0) {
-                                ((processedTiles.toDouble() / totalTiles) * 100).toInt()
-                            } else 0
-                            if (percent != lastPercent) {
-                                lastPercent = percent
-                                updateNotification(getString(R.string.downloading_tiles), percent, 100)
-                                repository.updateDownloadProgress(regionId, DownloadStatus.DOWNLOADING, processedTiles)
+                    // Workers: fetch several tiles concurrently. The tile server serves
+                    // each in ~5ms, so the old strictly-sequential fetch left the link
+                    // mostly idle; a small pool is many times faster.
+                    val workers = List(DOWNLOAD_CONCURRENCY) {
+                        launch {
+                            for (tile in tiles) {
+                                if (isCancelled) break
+                                // Count every tile advanced past - downloaded, already
+                                // cached, or failed - so the bar always reaches 100%.
+                                if (!storageManager.isTileDownloaded(tile.zoom, tile.x, tile.y)) {
+                                    storageManager.downloadTile(tile.zoom, tile.x, tile.y)
+                                }
+                                publishProgress(regionId, processed.incrementAndGet(), totalTiles, lastUpdateMs)
                             }
                         }
                     }
+                    workers.joinAll()
                 }
-                
+
                 if (!isCancelled) {
+                    val done = processed.get()
                     repository.updateDownloadStatus(regionId, DownloadStatus.DOWNLOADED, System.currentTimeMillis())
-                    repository.updateDownloadProgress(regionId, DownloadStatus.DOWNLOADED, processedTiles)
+                    repository.updateDownloadProgress(regionId, DownloadStatus.DOWNLOADED, done)
 
                     showCompleteNotification(getString(R.string.download_complete))
                 } else {
@@ -133,6 +143,23 @@ class TileDownloadService : Service() {
             } finally {
                 stopSelf()
             }
+        }
+    }
+
+    private data class TileCoord(val zoom: Int, val x: Int, val y: Int)
+
+    /**
+     * Publishes progress on a fixed cadence. The CAS on the timestamp ensures only one of
+     * the concurrent workers pushes per interval, so the UI/notification updates roughly
+     * every [PROGRESS_UPDATE_INTERVAL_MS] regardless of how many workers are running.
+     */
+    private fun publishProgress(regionId: String, done: Long, total: Long, lastUpdateMs: AtomicLong) {
+        val now = System.currentTimeMillis()
+        val prev = lastUpdateMs.get()
+        if (now - prev >= PROGRESS_UPDATE_INTERVAL_MS && lastUpdateMs.compareAndSet(prev, now)) {
+            val percent = if (total > 0) ((done.toDouble() / total) * 100).toInt() else 0
+            updateNotification(getString(R.string.downloading_tiles), percent, 100)
+            repository.updateDownloadProgress(regionId, DownloadStatus.DOWNLOADING, done)
         }
     }
 
@@ -216,6 +243,11 @@ class TileDownloadService : Service() {
     companion object {
         private const val CHANNEL_ID = "tile_download_channel"
         private const val NOTIFICATION_ID = 1001
+        // How often to refresh the download progress bar/notification while running.
+        private const val PROGRESS_UPDATE_INTERVAL_MS = 1000L
+        // Tiles fetched concurrently. The tile server handles this easily (~5ms/tile);
+        // this keeps the network busy without overwhelming the SQLite cache writer.
+        private const val DOWNLOAD_CONCURRENCY = 6
         const val EXTRA_REGION_ID = "extra_region_id"
         
         fun startDownload(context: Context, regionId: String) {

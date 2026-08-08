@@ -1,9 +1,11 @@
 package com.motorider.services
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import android.graphics.Rect
 import android.os.StatFs
 import com.motorider.utils.MapTileSource
+import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.modules.SqlTileWriter
 import org.osmdroid.util.MapTileIndex
 import java.io.File
@@ -44,14 +46,20 @@ class TileStorageManager(private val context: Context) {
             if (connection.responseCode == 200) {
                 connection.inputStream.use { input ->
                     // saveFile() always returns false even on success - a quirk in
-                    // osmdroid's SqlTileWriter (verified against 6.1.20 source: the
-                    // success path falls through to an unconditional `return false`).
-                    // Success is determined by the HTTP response, not this call.
+                    // osmdroid's SqlTileWriter (the success path falls through to an
+                    // unconditional `return false`). Success is determined by the HTTP
+                    // response, not this call.
+                    //
+                    // Pass a far-future expiry, NOT null. osmdroid stores null as an
+                    // already-past expiration, so offline it treats the tile as stale:
+                    // it renders it only after a failed network refresh, often as a
+                    // blurry lower-zoom approximation. A pre-downloaded offline tile
+                    // should simply never expire, so it is served directly (fresh).
                     tileWriter.saveFile(
                         tileSource,
                         MapTileIndex.getTileIndex(zoom, x, y),
                         input,
-                        null
+                        System.currentTimeMillis() + TILE_EXPIRY_MS
                     )
                 }
                 connection.disconnect()
@@ -88,6 +96,55 @@ class TileStorageManager(private val context: Context) {
         }
     }
 
+    /**
+     * One-time repair: stamps a far-future expiry on cached tiles that have none. Tiles
+     * written by earlier builds carry a null expiry, which osmdroid reads as "stale" - so
+     * offline it renders them only after a failed network refresh, often as a blurry
+     * lower-zoom approximation instead of the sharp tile it actually has.
+     *
+     * This rewrites every null-expiry row (potentially the whole cache), so it is guarded
+     * to run at most once. New downloads already set an expiry at write time, so there is
+     * nothing to repair on later installs. Safe to interrupt: the guard flag is only set
+     * after the update commits, so a killed migration simply retries next launch.
+     */
+    fun refreshTileExpirations() {
+        val prefs = context.getSharedPreferences("motorider_settings", Context.MODE_PRIVATE)
+        if (prefs.getBoolean(PREF_TILES_EXPIRY_REPAIRED, false)) return
+
+        val cacheDb = File(Configuration.getInstance().osmdroidTileCache, "cache.db")
+        if (!cacheDb.exists()) {
+            // No cache yet - nothing legacy to repair; don't keep retrying.
+            prefs.edit().putBoolean(PREF_TILES_EXPIRY_REPAIRED, true).apply()
+            return
+        }
+        try {
+            val expiry = System.currentTimeMillis() + TILE_EXPIRY_MS
+            SQLiteDatabase.openDatabase(
+                cacheDb.absolutePath, null, SQLiteDatabase.OPEN_READWRITE
+            ).use { db ->
+                // Update in small committed batches rather than one transaction. Each tile
+                // row carries a ~15KB blob, so a single UPDATE over the whole cache rewrites
+                // hundreds of MB into one rollback journal - slow, and lost entirely if the
+                // process dies mid-way. Batching keeps each journal tiny and makes the
+                // migration resumable: whatever committed stays committed, and the guard
+                // flag is only set once no null-expiry rows remain.
+                val update = db.compileStatement(
+                    "UPDATE tiles SET expires = ? " +
+                        "WHERE rowid IN (SELECT rowid FROM tiles WHERE expires IS NULL LIMIT ?)"
+                )
+                while (true) {
+                    update.bindLong(1, expiry)
+                    update.bindLong(2, EXPIRY_REPAIR_BATCH)
+                    val changed = update.executeUpdateDelete()
+                    if (changed == 0) break
+                }
+            }
+            prefs.edit().putBoolean(PREF_TILES_EXPIRY_REPAIRED, true).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     fun getStorageStats(): StorageStats {
         val cacheDb = org.osmdroid.config.Configuration.getInstance().osmdroidTileCache
         val totalSize = calculateDirSize(cacheDb)
@@ -118,6 +175,13 @@ class TileStorageManager(private val context: Context) {
     }
 
     companion object {
+        // Offline tiles should effectively never expire. ~10 years out.
+        private const val TILE_EXPIRY_MS = 10L * 365 * 24 * 60 * 60 * 1000
+        private const val PREF_TILES_EXPIRY_REPAIRED = "tiles_expiry_repaired_v1"
+        // Rows per committed batch during the expiry repair - small enough to keep each
+        // transaction's journal tiny and the migration resumable.
+        private const val EXPIRY_REPAIR_BATCH = 1000L
+
         fun lonToTileX(lon: Double, zoom: Int): Int {
             return ((lon + 180.0) / 360.0 * (1 shl zoom)).toInt()
         }
