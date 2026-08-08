@@ -6,6 +6,7 @@
     <!-- Navigation -->
     <string name="menu">Menu</string>
     <string name="screen_plan">Plan Route</string>
+    <string name="show_planner">Show planner</string>
     <string name="screen_quick_ride">Quick Ride</string>
     <string name="screen_search">Search</string>
 

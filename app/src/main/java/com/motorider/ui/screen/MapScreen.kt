@@ -16,6 +16,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -94,6 +96,9 @@ fun MapScreen(
 
     var routeInfoVisible by rememberSaveable { mutableStateOf(false) }
     var quickRidePanelVisible by remember { mutableStateOf(true) }
+    // Lets the rider stow the planning sheet (drag its grip down / tap the peek handle)
+    // to see the full map, then bring it back. Kept across config changes.
+    var planPanelVisible by rememberSaveable { mutableStateOf(true) }
     var isGeocoding by remember { mutableStateOf(false) }
 
     var lastStartText by rememberSaveable { mutableStateOf("") }
@@ -338,13 +343,16 @@ fun MapScreen(
                 }
 
                 when (currentScreen) {
-                    Screen.Plan -> AnimatedVisibility(
-                        visible = !routeInfoVisible || currentRoutes.isEmpty(),
-                        enter = fadeIn(),
+                    Screen.Plan -> {
+                    val planSlotActive = !routeInfoVisible || currentRoutes.isEmpty()
+                    AnimatedVisibility(
+                        visible = planSlotActive && planPanelVisible,
+                        enter = fadeIn() + slideInVertically(tween(300)) { it },
                         exit = fadeOut() + slideOutVertically(tween(300)) { it },
                         modifier = Modifier.align(Alignment.BottomCenter)
                     ) {
                         PlanPanel(
+                        onDismiss = { planPanelVisible = false },
                         currentLocation = currentLocation,
                         initialStart = lastStartText,
                         initialEnd = lastEndText,
@@ -374,6 +382,18 @@ fun MapScreen(
                             }
                         }
                     )
+                    }
+
+                    // Peek handle: appears in the same bottom slot once the sheet is
+                    // stowed, so the rider always has an obvious way to bring it back.
+                    AnimatedVisibility(
+                        visible = planSlotActive && !planPanelVisible,
+                        enter = fadeIn() + slideInVertically(tween(300)) { it },
+                        exit = fadeOut() + slideOutVertically(tween(300)) { it },
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    ) {
+                        PlanPeekHandle(onReveal = { planPanelVisible = true })
+                    }
                     }
                     Screen.QuickRide -> AnimatedVisibility(
                         visible = quickRidePanelVisible,
@@ -446,6 +466,7 @@ private fun DrawerItem(
 
 @Composable
 private fun BoxScope.PlanPanel(
+    onDismiss: () -> Unit,
     currentLocation: GeoPoint?,
     initialStart: String,
     initialEnd: String,
@@ -499,11 +520,38 @@ private fun BoxScope.PlanPanel(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp)
         ) {
-            // Drag-handle affordance, the standard bottom-sheet grip.
-            Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+            // Drag-handle affordance, the standard bottom-sheet grip. Dragging it down
+            // (past a small threshold) or tapping it stows the sheet; a peek handle then
+            // takes its place so it can be brought back.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    // Wider vertical padding gives the grip a comfortable touch target.
+                    .padding(vertical = 6.dp)
+                    .pointerInput(Unit) {
+                        var dragged = 0f
+                        detectVerticalDragGestures(
+                            onDragEnd = { dragged = 0f },
+                            onDragCancel = { dragged = 0f }
+                        ) { change, dragAmount ->
+                            change.consume()
+                            dragged += dragAmount
+                            if (dragged > 48f) {
+                                onDismiss()
+                                dragged = 0f
+                            }
+                        }
+                    }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onDismiss() }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
                 Box(
                     Modifier
-                        .size(width = 32.dp, height = 4.dp)
+                        .size(width = 36.dp, height = 5.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.outlineVariant)
                 )
@@ -643,6 +691,58 @@ private fun BoxScope.PlanPanel(
             },
             onDismiss = { showAvoidanceDialog = false }
         )
+    }
+}
+
+/**
+ * Compact handle shown in the bottom slot when the planning sheet is stowed. Tapping it
+ * (or dragging up) restores the full [PlanPanel]. Deliberately small so the map stays
+ * almost fully visible while it's up.
+ */
+@Composable
+private fun BoxScope.PlanPeekHandle(onReveal: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(bottom = 16.dp)
+            .pointerInput(Unit) {
+                var dragged = 0f
+                detectVerticalDragGestures(
+                    onDragEnd = { dragged = 0f },
+                    onDragCancel = { dragged = 0f }
+                ) { change, dragAmount ->
+                    change.consume()
+                    dragged += dragAmount
+                    if (dragged < -32f) {
+                        onReveal()
+                        dragged = 0f
+                    }
+                }
+            }
+            .clickable(onClick = onReveal),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+        shadowElevation = 8.dp,
+        tonalElevation = 3.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.KeyboardArrowUp,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                stringResource(R.string.show_planner),
+                fontWeight = FontWeight.Medium,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
     }
 }
 
