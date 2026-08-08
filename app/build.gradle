@@ -20,14 +20,24 @@ android {
         release {
             minifyEnabled = false
             proguardFiles(getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro')
+            // Release builds must not point at a developer's LAN box. Override with
+            // -PmotoRiderApiBase=https://... when a hosted API exists.
+            buildConfigField 'String', 'ROUTING_API_BASE_URL',
+                    "\"${project.findProperty('motoRiderApiBase') ?: 'https://api.motorider.invalid'}\""
         }
         debug {
             debuggable = true
+            // 10.0.2.2 is the host loopback as seen from the Android emulator.
+            // On a physical device set motoRiderDevApiBase to the host's LAN IP,
+            // e.g. ./gradlew installDebug -PmotoRiderDevApiBase=http://192.168.68.52:8080
+            buildConfigField 'String', 'ROUTING_API_BASE_URL',
+                    "\"${project.findProperty('motoRiderDevApiBase') ?: 'http://10.0.2.2:8080'}\""
         }
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {

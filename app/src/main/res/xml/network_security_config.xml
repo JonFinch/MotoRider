@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The local routing API is plain HTTP, but the app previously enabled
+  android:usesCleartextTraffic="true" application-wide, which also relaxed
+  Nominatim and the tile servers and shipped that relaxation to release builds.
+
+  This restricts cleartext to the development hosts only. Everything else -
+  including nominatim.openstreetmap.org and tile.openstreetmap.org - stays
+  HTTPS-only and certificate-checked.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Host loopback as seen from the Android emulator -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <!-- Device-local -->
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <!-- Developer LAN host running docker compose -->
+        <domain includeSubdomains="false">192.168.68.52</domain>
+    </domain-config>
+</network-security-config>

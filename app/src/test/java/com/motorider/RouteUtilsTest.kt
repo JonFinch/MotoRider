@@ -5,45 +5,8 @@ import com.motorider.models.Waypoint
 import org.junit.Test
 import org.junit.Assert.assertEquals
 import org.osmdroid.util.GeoPoint
-import java.util.Arrays
 
 class RouteUtilsTest {
-
-    @Test
-    fun testCalculateCurvatureScore() {
-        val wp1 = Waypoint("Point 1", GeoPoint(0.0, 0.0))
-        val wp2 = Waypoint("Point 2", GeoPoint(1.0, 1.0))
-        val wp3 = Waypoint("Point 3", GeoPoint(2.0, 0.0))
-
-        val waypoints: List<Waypoint> = Arrays.asList(wp1, wp2, wp3)
-
-        val score = RouteUtils.calculateCurvatureScore(waypoints)
-        assert(score >= 0.0 && score <= 100.0) { "Curvature score should be between 0 and 100" }
-    }
-
-    @Test
-    fun testCalculateElevationGain() {
-        val wp1 = Waypoint("Point 1", GeoPoint(0.0, 0.0)).apply { elevation = 100.0 }
-        val wp2 = Waypoint("Point 2", GeoPoint(1.0, 1.0)).apply { elevation = 150.0 }
-        val wp3 = Waypoint("Point 3", GeoPoint(2.0, 0.0)).apply { elevation = 120.0 }
-
-        val waypoints: List<Waypoint> = Arrays.asList(wp1, wp2, wp3)
-
-        val gain = RouteUtils.calculateElevationGain(waypoints)
-        assertEquals("Elevation gain should be 50.0 meters", 50.0, gain, 0.01)
-    }
-
-    @Test
-    fun testCalculateElevationGainWithNoGain() {
-        val wp1 = Waypoint("Point 1", GeoPoint(0.0, 0.0)).apply { elevation = 100.0 }
-        val wp2 = Waypoint("Point 2", GeoPoint(1.0, 1.0)).apply { elevation = 90.0 }
-        val wp3 = Waypoint("Point 3", GeoPoint(2.0, 0.0)).apply { elevation = 80.0 }
-
-        val waypoints: List<Waypoint> = Arrays.asList(wp1, wp2, wp3)
-
-        val gain = RouteUtils.calculateElevationGain(waypoints)
-        assertEquals("Elevation gain should be 0.0 meters", 0.0, gain, 0.01)
-    }
 
     @Test
     fun testParseGeocodingResponseWithQuotedValues() {
@@ -106,81 +69,6 @@ class RouteUtilsTest {
     }
 
     @Test
-    fun testParseOsrmRoutesWithRealData() {
-        val jsonResponse = """{"code":"Ok","routes":[{"geometry":{"coordinates":[[-0.1278,51.5074],[-0.1270,51.5075],[-0.1262,51.5076],[2.3522,48.8566]],"type":"LineString"},"weight":37553.9,"duration":43265.6,"distance":620363.5}],"waypoints":[]}"""
-
-        val waypoints = listOf(
-            Waypoint("Start", GeoPoint(51.5074, -0.1278)),
-            Waypoint("End", GeoPoint(48.8566, 2.3522))
-        )
-        val routes = RouteUtils.parseOsrmRoutes(jsonResponse, waypoints, RouteType.DIRECT)
-
-        assert(routes.isNotEmpty()) { "Should parse OSRM response" }
-        val route = routes[0]
-        assert(route.routeGeometry != null) { "Geometry should not be null" }
-        assert(4 == route.routeGeometry!!.size) { "Should have 4 geometry points" }
-        assertEquals("First point longitude", -0.1278, route.routeGeometry!![0].longitude, 0.0001)
-        assertEquals("First point latitude", 51.5074, route.routeGeometry!![0].latitude, 0.0001)
-        assertEquals("Last point longitude", 2.3522, route.routeGeometry!![3].longitude, 0.0001)
-        assertEquals("Last point latitude", 48.8566, route.routeGeometry!![3].latitude, 0.0001)
-        assertEquals("Distance in km", 620.3635, route.distance, 0.1)
-        assertEquals("Duration in minutes", 721.1, route.duration, 0.2)
-    }
-
-    @Test
-    fun testParseOsrmRoutesNestedCoordinates() {
-        val jsonResponse = """{"code":"Ok","routes":[{"geometry":{"coordinates":[[1.0,2.0],[3.0,4.0],[5.0,6.0],[7.0,8.0],[9.0,10.0],[11.0,12.0],[13.0,14.0],[15.0,16.0]],"type":"LineString"},"weight":100.0,"duration":60.0,"distance":500.0}],"waypoints":[]}"""
-
-        val waypoints = listOf(
-            Waypoint("Start", GeoPoint(2.0, 1.0)),
-            Waypoint("End", GeoPoint(16.0, 15.0))
-        )
-        val routes = RouteUtils.parseOsrmRoutes(jsonResponse, waypoints, RouteType.FAST)
-
-        assert(routes.isNotEmpty()) { "Should parse OSRM response" }
-        assert(8 == routes[0].routeGeometry!!.size) { "Should have all 8 coordinate points" }
-    }
-
-    @Test
-    fun testParseOsrmRoutesUsesRouteLevelDistance() {
-        val jsonResponse = """{"code":"Ok","routes":[{"geometry":{"coordinates":[[1.0,2.0],[3.0,4.0],[5.0,6.0]],"type":"LineString"},"legs":[],"weight_name":"routability","weight":100.0,"duration":60.0,"distance":500.0}],"waypoints":[]}"""
-
-        val waypoints = listOf(
-            Waypoint("Start", GeoPoint(2.0, 1.0)),
-            Waypoint("End", GeoPoint(6.0, 5.0))
-        )
-        val routes = RouteUtils.parseOsrmRoutes(jsonResponse, waypoints, RouteType.DIRECT)
-
-        assert(routes.isNotEmpty()) { "Should parse OSRM response" }
-        assert(3 == routes[0].routeGeometry!!.size) { "Should have all 3 geometry points" }
-        assertEquals("Distance should be the route total", 0.5, routes[0].distance, 0.01)
-        assertEquals("Duration should be the route total", 1.0, routes[0].duration, 0.02)
-    }
-
-    @Test
-    fun testParseOsrmRoutesNullAndEmpty() {
-        val waypoints = listOf(
-            Waypoint("Start", GeoPoint(0.0, 0.0)),
-            Waypoint("End", GeoPoint(1.0, 1.0))
-        )
-
-        assert(RouteUtils.parseOsrmRoutes(null, waypoints, RouteType.DIRECT).isEmpty()) { "Should return empty for null" }
-        assert(RouteUtils.parseOsrmRoutes("", waypoints, RouteType.DIRECT).isEmpty()) { "Should return empty for empty string" }
-        assert(RouteUtils.parseOsrmRoutes("not json", waypoints, RouteType.DIRECT).isEmpty()) { "Should return empty for malformed JSON" }
-    }
-
-    @Test
-    fun testParseOsrmRoutesFailureCode() {
-        val jsonResponse = """{"code":"NoRoute","routes":[],"waypoints":[]}"""
-        val waypoints = listOf(
-            Waypoint("Start", GeoPoint(0.0, 0.0)),
-            Waypoint("End", GeoPoint(1.0, 1.0))
-        )
-        val routes = RouteUtils.parseOsrmRoutes(jsonResponse, waypoints, RouteType.DIRECT)
-        assert(routes.isEmpty()) { "Should return empty for failed routing" }
-    }
-
-    @Test
     fun testGeocodingCallbackIsNullSafe() {
         try {
             RouteUtils.geocodeLocation("Test Location", null)
@@ -193,21 +81,11 @@ class RouteUtilsTest {
     }
 
     @Test
-    fun testRouteTypeCurvatureWeights() {
-        assertEquals("DIRECT should have curvature weight 0.0", 0.0, RouteType.DIRECT.getCurvatureWeight(), 0.01)
-        assertEquals("FAST should have curvature weight 0.3", 0.3, RouteType.FAST.getCurvatureWeight(), 0.01)
-        assertEquals("CURVY should have curvature weight 0.7", 0.7, RouteType.CURVY.getCurvatureWeight(), 0.01)
-        assertEquals("EXTRA_CURVY should have curvature weight 1.0", 1.0, RouteType.EXTRA_CURVY.getCurvatureWeight(), 0.01)
-        assertEquals("MOTORCYCLE should have curvature weight 0.5", 0.5, RouteType.MOTORCYCLE.getCurvatureWeight(), 0.01)
-    }
-
-    @Test
     fun testRouteTypeSpeedFactors() {
         assertEquals("DIRECT should have speed factor 1.2", 1.2, RouteType.DIRECT.getSpeedFactor(), 0.01)
         assertEquals("FAST should have speed factor 1.0", 1.0, RouteType.FAST.getSpeedFactor(), 0.01)
         assertEquals("CURVY should have speed factor 0.8", 0.8, RouteType.CURVY.getSpeedFactor(), 0.01)
         assertEquals("EXTRA_CURVY should have speed factor 0.6", 0.6, RouteType.EXTRA_CURVY.getSpeedFactor(), 0.01)
-        assertEquals("MOTORCYCLE should have speed factor 1.0", 1.0, RouteType.MOTORCYCLE.getSpeedFactor(), 0.01)
     }
 
     @Test
@@ -230,5 +108,68 @@ class RouteUtilsTest {
         } catch (e: Exception) {
             throw AssertionError("Should not throw: ${e.message}")
         }
+    }
+
+    @Test
+    fun testParseRouteApiResponse() {
+        val jsonResponse = """{"success":true,"routes":[{"index":0,"score":0.3,"distance":537600.5,"duration":34200.0,"geometry":[[-0.1278,51.5074],[-0.1270,51.5075],[-0.1262,51.5076],[2.3522,48.8566]],"curvature_metadata":{"total_curvature":2450.5,"curvature_per_km":4.56,"curviest_segment_way_id":123456,"curviest_segment_curvature":850.3,"segments_analyzed":45,"segments_with_curvature":38}}],"best_route_index":0}"""
+
+        val waypoints = listOf(
+            Waypoint("Start", GeoPoint(51.5074, -0.1278)),
+            Waypoint("End", GeoPoint(48.8566, 2.3522))
+        )
+        val routes = RouteUtils.parseRouteApiResponse(jsonResponse, waypoints, RouteType.DIRECT)
+
+        assert(routes.isNotEmpty()) { "Should parse route API response" }
+        val route = routes[0]
+        assert(route.routeGeometry != null) { "Geometry should not be null" }
+        assert(4 == route.routeGeometry!!.size) { "Should have 4 geometry points" }
+        assertEquals("First point longitude", -0.1278, route.routeGeometry!![0].longitude, 0.0001)
+        assertEquals("First point latitude", 51.5074, route.routeGeometry!![0].latitude, 0.0001)
+        assertEquals("Distance in km", 537.6005, route.distance, 0.1)
+        assertEquals("Duration in minutes", 570.0, route.duration, 0.1)
+        assertEquals("Score", 0.3, route.routeScore, 0.01)
+        assertEquals("Curvature score from per km", 4.56, route.curvatureScore, 0.01)
+        assert(route.curvatureMetadata != null) { "Should have curvature metadata" }
+        assertEquals("Total curvature", 2450.5, route.curvatureMetadata!!.totalCurvature, 0.1)
+        assertEquals("Curvature per km", 4.56, route.curvatureMetadata!!.curvaturePerKm, 0.01)
+        assertEquals("Elevation gain is zero", 0.0, route.elevationGain, 0.01)
+    }
+
+    @Test
+    fun testParseRouteApiResponseFlatGeometry() {
+        val jsonResponse = """{"success":true,"routes":[{"distance":500.0,"duration":60.0,"score":0.5,"geometry":[[1.0,2.0],[3.0,4.0],[5.0,6.0],[7.0,8.0],[9.0,10.0],[11.0,12.0],[13.0,14.0],[15.0,16.0]]}]}"""
+
+        val waypoints = listOf(
+            Waypoint("Start", GeoPoint(2.0, 1.0)),
+            Waypoint("End", GeoPoint(16.0, 15.0))
+        )
+        val routes = RouteUtils.parseRouteApiResponse(jsonResponse, waypoints, RouteType.FAST)
+
+        assert(routes.isNotEmpty()) { "Should parse response with flat geometry" }
+        assert(8 == routes[0].routeGeometry!!.size) { "Should have all 8 coordinate points" }
+        assert(routes[0].curvatureMetadata == null) { "Missing curvature metadata should be null" }
+    }
+
+    @Test
+    fun testParseRouteApiResponseSuccessFalse() {
+        val jsonResponse = """{"success":false,"message":"No route found","routes":[]}"""
+        val waypoints = listOf(
+            Waypoint("Start", GeoPoint(0.0, 0.0)),
+            Waypoint("End", GeoPoint(1.0, 1.0))
+        )
+        val routes = RouteUtils.parseRouteApiResponse(jsonResponse, waypoints, RouteType.DIRECT)
+        assert(routes.isEmpty()) { "Should return empty for success=false" }
+    }
+
+    @Test
+    fun testParseRouteApiResponseEmptyAndNull() {
+        val waypoints = listOf(
+            Waypoint("Start", GeoPoint(0.0, 0.0)),
+            Waypoint("End", GeoPoint(1.0, 1.0))
+        )
+        assert(RouteUtils.parseRouteApiResponse(null, waypoints, RouteType.DIRECT).isEmpty()) { "Null should be empty" }
+        assert(RouteUtils.parseRouteApiResponse("", waypoints, RouteType.DIRECT).isEmpty()) { "Empty should be empty" }
+        assert(RouteUtils.parseRouteApiResponse("not json", waypoints, RouteType.DIRECT).isEmpty()) { "Malformed should be empty" }
     }
 }

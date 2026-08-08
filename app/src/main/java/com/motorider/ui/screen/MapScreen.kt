@@ -36,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import com.motorider.R
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -82,8 +83,8 @@ fun MapScreen() {
     var lastStartText by rememberSaveable { mutableStateOf("") }
     var lastEndText by rememberSaveable { mutableStateOf("") }
     var lastIntermediates by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
-    var lastLegPrefs by rememberSaveable { mutableStateOf<List<RouteType>>(emptyList()) }
-    var lastAvoidances by rememberSaveable { mutableStateOf<Set<Avoidance>>(emptySet()) }
+    var lastLegPrefs by remember { mutableStateOf<List<RouteType>>(emptyList()) }
+    var lastAvoidances by remember { mutableStateOf<Set<Avoidance>>(emptySet()) }
 
     var distanceUnitMiles by rememberSaveable { mutableStateOf(true) }
 
@@ -255,7 +256,13 @@ fun MapScreen() {
                 }
 
                 when (currentScreen) {
-                    Screen.Plan -> PlanPanel(
+                    Screen.Plan -> AnimatedVisibility(
+                        visible = !routeInfoVisible || currentRoutes.isEmpty(),
+                        enter = fadeIn(),
+                        exit = fadeOut() + slideOutVertically(tween(300)) { it },
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    ) {
+                        PlanPanel(
                         currentLocation = currentLocation,
                         hasRoute = currentRoutes.isNotEmpty(),
                         initialStart = lastStartText,
@@ -287,6 +294,7 @@ fun MapScreen() {
                             }
                         }
                     )
+                    }
                     Screen.QuickRide -> AnimatedVisibility(
                         visible = quickRidePanelVisible,
                         enter = fadeIn() + slideInVertically(tween(300)) { it },
@@ -372,7 +380,7 @@ private fun BoxScope.PlanPanel(
     var selectedAvoidances by remember { mutableStateOf<Set<Avoidance>>(emptySet()) }
     var showPreferenceDialog by remember { mutableStateOf(false) }
     var showAvoidanceDialog by remember { mutableStateOf(false) }
-    var editingLegIndex by remember { mutableStateOf(-1) }
+    var editingLegIndex by remember { mutableStateOf(0) }
 
     val legPrefs = remember { mutableStateListOf(RouteType.CURVY) }
     LaunchedEffect(intermediates.size) {
@@ -447,7 +455,7 @@ private fun BoxScope.PlanPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 AssistChip(
-                    onClick = { showPreferenceDialog = true },
+                    onClick = { editingLegIndex = 0; showPreferenceDialog = true },
                     label = { Text(stringResource(R.string.curvature)) },
                     leadingIcon = { Icon(imageVector = Icons.Outlined.Timeline, contentDescription = null, modifier = Modifier.size(16.dp)) }
                 )
@@ -459,18 +467,20 @@ private fun BoxScope.PlanPanel(
                 IconButton(onClick = { intermediates = intermediates + "" }) {
                     Icon(Icons.Default.Add, null, tint = BrandBlue)
                 }
-                Spacer(Modifier.weight(1f))
-                Button(
-                    onClick = {
-                        val im = intermediates.filter { it.isNotBlank() }
-                        onPlanRoute(startText, endText, im, legPrefs.toList(), selectedAvoidances)
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Text(stringResource(R.string.go), fontWeight = FontWeight.Bold)
-                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    val im = intermediates.filter { it.isNotBlank() }
+                    onPlanRoute(startText, endText, im, legPrefs.toList(), selectedAvoidances)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Text(stringResource(R.string.go), fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
 
             Spacer(Modifier.height(8.dp))
@@ -657,25 +667,33 @@ private fun WaypointField(
     val currentLocationLabel = stringResource(R.string.current_location)
     var suggestions by remember { mutableStateOf<List<RouteUtils.LocationSuggestion>>(emptyList()) }
     var showSuggestions by remember { mutableStateOf(false) }
-    var searchGen by remember { mutableIntStateOf(0) }
+    var isSearching by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
-    var dismissJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var selectedValue by remember { mutableStateOf("") }
+    var hasError by remember { mutableStateOf(false) }
+    var searchJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(value) {
+        if (value == selectedValue || value.isEmpty()) {
+            isSearching = false
+            return@LaunchedEffect
+        }
         showSuggestions = false
-        dismissJob?.cancel()
-        if (value.length < 3) return@LaunchedEffect
-        val gen = ++searchGen
-        delay(1000)
-        if (gen != searchGen) return@LaunchedEffect
-        RouteUtils.searchLocations(value, currentLocation?.latitude, currentLocation?.longitude) { res ->
-            suggestions = res
-            showSuggestions = res.isNotEmpty() && value.length >= 3
-            if (showSuggestions) {
-                dismissJob = scope.launch {
-                    delay(4000)
-                    showSuggestions = false
+        searchJob?.cancel()
+        if (value.length < 3) {
+            isSearching = false
+            return@LaunchedEffect
+        }
+        isSearching = true
+        searchJob = scope.launch {
+            delay(300)
+            RouteUtils.searchLocations(value, currentLocation?.latitude, currentLocation?.longitude) { res ->
+                suggestions = res
+                isSearching = false
+                hasError = res.isEmpty()
+                if (isFocused && value.length >= 3) {
+                    showSuggestions = res.isNotEmpty() || hasError
                 }
             }
         }
@@ -683,8 +701,9 @@ private fun WaypointField(
 
     LaunchedEffect(isFocused) {
         if (!isFocused) {
-            delay(200)
             showSuggestions = false
+        } else if (value.length >= 3 && value != selectedValue && (suggestions.isNotEmpty() || hasError)) {
+            showSuggestions = true
         }
     }
 
@@ -701,29 +720,50 @@ private fun WaypointField(
                 Spacer(Modifier.width(6.dp))
                 OutlinedTextField(
                     value = value,
-                    onValueChange = { onValueChange(it) },
+                    onValueChange = { newVal ->
+                        selectedValue = ""
+                        onValueChange(newVal)
+                    },
                     modifier = Modifier.weight(1f).onFocusChanged { isFocused = it.isFocused },
-                    placeholder = { Text(hint, fontSize = 13.sp) },
+                    placeholder = { Text(hint, fontSize = 15.sp) },
                     singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color.Transparent,
                         unfocusedBorderColor = Color.Transparent
                     )
                 )
+                if (value.isNotEmpty()) {
+                    IconButton(
+                        onClick = {
+                            selectedValue = ""
+                            onValueChange("")
+                            suggestions = emptyList()
+                            showSuggestions = false
+                            hasError = false
+                        },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(Icons.Default.Clear, stringResource(R.string.clear), modifier = Modifier.size(24.dp), tint = Gray600)
+                    }
+                }
                 IconButton(onClick = {
                     currentLocation?.let {
+                        selectedValue = currentLocationLabel
                         onValueChange(currentLocationLabel)
                         RouteUtils.reverseGeocode(it.latitude, it.longitude) { addr ->
-                            if (addr != null) onValueChange(addr)
+                            if (addr != null) {
+                                selectedValue = addr
+                                onValueChange(addr)
+                            }
                         }
                     }
-                }, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.GpsFixed, stringResource(R.string.use_gps), modifier = Modifier.size(16.dp), tint = tint)
+                }, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Default.GpsFixed, stringResource(R.string.use_gps), modifier = Modifier.size(24.dp), tint = tint)
                 }
                 if (onRemove != null) {
-                    IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, stringResource(R.string.remove), modifier = Modifier.size(16.dp), tint = Gray600)
+                    IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.Close, stringResource(R.string.remove), modifier = Modifier.size(24.dp), tint = Gray600)
                     }
                 }
             }
@@ -731,18 +771,44 @@ private fun WaypointField(
         AnimatedVisibility(showSuggestions, enter = expandVertically(), exit = shrinkVertically()) {
             Surface(
                 shape = RoundedCornerShape(bottomStart = 14.dp, bottomEnd = 14.dp),
-                color = bgColor,
-                shadowElevation = 2.dp
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 6.dp,
+                tonalElevation = 2.dp
             ) {
-                Column(modifier = Modifier.padding(start = 32.dp, bottom = 4.dp)) {
-                    suggestions.take(5).forEach { s ->
+                Column {
+                    if (isSearching) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = BrandBlue,
+                            trackColor = BrandBlue.copy(alpha = 0.1f)
+                        )
+                    }
+                    if (hasError && suggestions.isEmpty() && !isSearching) {
                         Row(
-                            Modifier.fillMaxWidth().clickable { onValueChange(s.displayName); showSuggestions = false }.padding(horizontal = 12.dp, vertical = 8.dp),
+                            Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp)
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.LocationOn, null, modifier = Modifier.size(14.dp), tint = Gray600)
-                            Spacer(Modifier.width(6.dp))
-                            Text(s.displayName, fontSize = 12.sp, maxLines = 1, color = OnSurfaceLight)
+                            Icon(Icons.Default.ErrorOutline, null, modifier = Modifier.size(16.dp), tint = ErrorRed)
+                            Spacer(Modifier.width(10.dp))
+                            Text(stringResource(R.string.no_results_found), fontSize = 15.sp, color = OnSurfaceVariantLight)
+                        }
+                    }
+                    suggestions.take(5).forEach { s ->
+                        Row(
+                            Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp).clickable {
+                                selectedValue = s.displayName
+                                onValueChange(s.displayName)
+                                showSuggestions = false
+                                isSearching = false
+                                hasError = false
+                                searchJob?.cancel()
+                            }.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.LocationOn, null, modifier = Modifier.size(20.dp), tint = BrandBlue)
+                            Spacer(Modifier.width(10.dp))
+                            Text(s.displayName, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = OnSurfaceLight)
                         }
                     }
                 }
@@ -758,7 +824,6 @@ private fun LegChip(label: String, pref: RouteType, onClick: () -> Unit) {
         RouteType.FAST -> Icons.Outlined.Navigation to BrandBlue
         RouteType.CURVY -> Icons.Outlined.Timeline to BrandBlueLight
         RouteType.EXTRA_CURVY -> Icons.Outlined.Landscape to ErrorRed
-        else -> Icons.Outlined.Timeline to BrandBlue
     }
     AssistChip(
         onClick = onClick,
@@ -829,6 +894,21 @@ private fun AvoidanceDialog(
 // ─── Route Info Card ────────────────────────────────────────────────────────
 
 @Composable
+private fun RouteWarningBanner(message: String, tint: androidx.compose.ui.graphics.Color) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        shape = RoundedCornerShape(10.dp),
+        color = tint.copy(alpha = 0.12f)
+    ) {
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Warning, null, Modifier.size(18.dp), tint = tint)
+            Spacer(Modifier.width(8.dp))
+            Text(message, style = MaterialTheme.typography.bodySmall, color = tint)
+        }
+    }
+}
+
+@Composable
 private fun RouteInfoCard(
     routes: List<Route>,
     selectedIndex: Int,
@@ -847,12 +927,28 @@ private fun RouteInfoCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.route_ready), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    stringResource(if (route.isEstimate) R.string.route_estimate_title else R.string.route_ready),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (route.isEstimate) ErrorRed else MaterialTheme.colorScheme.onSurface
+                )
                 TextButton(onClick = onBackToPlanning) {
                     Icon(Icons.Default.Edit, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(stringResource(R.string.edit))
                 }
+            }
+            if (route.isEstimate) {
+                // Not a real route: straight lines between waypoints. Say so loudly.
+                RouteWarningBanner(stringResource(R.string.route_estimate_warning), ErrorRed)
+            }
+            // A real route, but with a caveat the rider needs before setting off.
+            if (!route.isEstimate && !route.avoidancesHonoured) {
+                RouteWarningBanner(stringResource(R.string.avoidances_not_honoured_warning), AccentOrange)
+            }
+            if (!route.isEstimate && !route.curvatureAvailable) {
+                RouteWarningBanner(stringResource(R.string.curvature_unavailable_warning), AccentOrange)
             }
             if (routes.size > 1) {
                 Row(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -869,8 +965,8 @@ private fun RouteInfoCard(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 StatItem(Icons.Outlined.Navigation, stringResource(R.string.distance_label), formatDistance(route.distance))
                 StatItem(Icons.Outlined.Schedule, stringResource(R.string.duration_label), "${"%.0f".format(route.duration)} min")
-                StatItem(Icons.Outlined.Straighten, stringResource(R.string.curvature_label), "${"%.0f".format(route.curvatureScore)}%")
-                StatItem(Icons.Outlined.Terrain, stringResource(R.string.elevation_label), stringResource(R.string.elevation_fmt, "${"%.0f".format(route.elevationGain)}"))
+                StatItem(Icons.Outlined.Straighten, stringResource(R.string.curvature_label), "${"%.1f".format(route.curvatureScore)}")
+                StatItem(Icons.Outlined.Star, stringResource(R.string.score_label), "${"%.2f".format(route.routeScore)}")
             }
             Spacer(Modifier.height(12.dp))
             Button(

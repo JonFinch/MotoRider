@@ -80,9 +80,16 @@
     <string name="finding_route">Finding route…</string>
     <string name="distance_label">Distance</string>
     <string name="duration_label">Duration</string>
-    <string name="curvature_label">Curvature</string>
+    <string name="curvature_label">Curves/km</string>
     <string name="elevation_label">Elevation</string>
     <string name="elevation_fmt">%s m</string>
+    <string name="score_label">Score</string>
+    <string name="route_estimate_title">Offline estimate — not a route</string>
+    <string name="route_estimate_warning">Could not reach the routing service. This is a straight line between your points, not a rideable route. Distance and time are rough estimates.</string>
+    <string name="avoidances_not_honoured_warning">No route exists that fully avoids everything you selected. This route keeps them to a minimum, but does not avoid them completely.</string>
+    <string name="curvature_unavailable_warning">Curvature data is unavailable, so the curves figure is not meaningful and this route was not ranked for curviness.</string>
+    <string name="none_value">N/A</string>
+    <string name="no_results_found">No results found</string>
     <string name="start_navigation_label">Start Navigation</string>
 
     <!-- Vehicle types -->

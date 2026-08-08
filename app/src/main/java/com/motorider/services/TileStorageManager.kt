@@ -3,6 +3,7 @@ package com.motorider.services
 import android.content.Context
 import android.os.Environment
 import android.os.StatFs
+import com.motorider.config.ApiConfig
 import org.osmdroid.tileprovider.tilesource.XYTileSource
 import java.io.File
 import java.io.FileOutputStream
@@ -14,7 +15,7 @@ class TileStorageManager(private val context: Context) {
     private val tileSource = XYTileSource(
         "Mapnik",
         0, 19, 256, ".png",
-        arrayOf("https://tile.openstreetmap.org/")
+        arrayOf(ApiConfig.TILE_SERVER_BASE_URL + "/")
     )
     
     fun getTileStorageDir(): File {
@@ -79,7 +80,7 @@ class TileStorageManager(private val context: Context) {
     }
     
     private fun buildTileUrl(zoom: Int, x: Int, y: Int): String {
-        return "https://tile.openstreetmap.org/$zoom/$x/$y.png"
+        return "${ApiConfig.TILE_SERVER_BASE_URL}/$zoom/$x/$y.png"
     }
     
     fun deleteTile(zoom: Int, x: Int, y: Int): Boolean {

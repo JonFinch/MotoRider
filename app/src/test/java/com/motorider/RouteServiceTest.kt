@@ -2,6 +2,8 @@ package com.motorider.services
 
 import com.motorider.models.Avoidance
 import com.motorider.models.RouteType
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class RouteServiceTest {
@@ -12,15 +14,7 @@ class RouteServiceTest {
         assert("Toll Roads" == Avoidance.TOLLS.displayName) { "TOLLS display name" }
         assert("Ferries" == Avoidance.FERRIES.displayName) { "FERRIES display name" }
         assert("Unpaved Roads" == Avoidance.UNPAVED_ROADS.displayName) { "UNPAVED_ROADS display name" }
-        assert("Narrow Roads" == Avoidance.NARROW_ROADS.displayName) { "NARROW_ROADS display name" }
-    }
-
-    @Test
-    fun testRouteTypeCurvatureWeights() {
-        assert(0.0 == RouteType.DIRECT.getCurvatureWeight()) { "DIRECT curvature weight" }
-        assert(0.3 == RouteType.FAST.getCurvatureWeight()) { "FAST curvature weight" }
-        assert(0.7 == RouteType.CURVY.getCurvatureWeight()) { "CURVY curvature weight" }
-        assert(1.0 == RouteType.EXTRA_CURVY.getCurvatureWeight()) { "EXTRA_CURVY curvature weight" }
+        assert("Tracks & Service Roads" == Avoidance.TRACKS_AND_SERVICE.displayName) { "TRACKS_AND_SERVICE display name" }
     }
 
     @Test
@@ -29,6 +23,17 @@ class RouteServiceTest {
         assert(1.0 == RouteType.FAST.getSpeedFactor()) { "FAST speed factor" }
         assert(0.8 == RouteType.CURVY.getSpeedFactor()) { "CURVY speed factor" }
         assert(0.6 == RouteType.EXTRA_CURVY.getSpeedFactor()) { "EXTRA_CURVY speed factor" }
+    }
+
+    @Test
+    fun testAvoidanceApiValues() {
+        assertEquals("motorway", Avoidance.HIGHWAYS.apiValue)
+        assertEquals("toll", Avoidance.TOLLS.apiValue)
+        assertEquals("ferry", Avoidance.FERRIES.apiValue)
+        // Both are now backed by the routing API (surface / road_class rules),
+        // so every checkbox in the avoidance dialog has a real effect.
+        assertEquals("unpaved", Avoidance.UNPAVED_ROADS.apiValue)
+        assertEquals("narrow", Avoidance.TRACKS_AND_SERVICE.apiValue)
     }
 
     @Test
