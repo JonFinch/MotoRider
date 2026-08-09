@@ -4,6 +4,7 @@ import com.motorider.models.ManeuverType
 import com.motorider.models.Route
 import com.motorider.models.Waypoint
 import com.motorider.utils.RouteUtils
+import com.motorider.utils.distanceToMeters
 import com.motorider.utils.totalRouteDistance
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -377,5 +378,190 @@ class NavigationManagerTest {
         assertEquals(NavigationState.NAVIGATING, state.state)
         assertFalse(state.isOffRoute)
         assertFalse(state.isRecalculating)
+    }
+
+    // ─── Round trips ─────────────────────────────────────────────────────────
+
+    /**
+     * A loop out and back: east 1 km, north 1 km, west 1 km, south 1 km, finishing
+     * exactly where it started — the shape Quick Ride produces.
+     */
+    private fun loopGeometry(): List<GeoPoint> =
+        (0..10).map { offset(0.0, it * 100.0) } +
+            (1..10).map { offset(it * 100.0, 1000.0) } +
+            (9 downTo 0).map { offset(1000.0, it * 100.0) } +
+            (9 downTo 0).map { offset(it * 100.0, 0.0) }
+
+    private fun loopRoute(): Route {
+        val geometry = loopGeometry()
+        val waypoints = listOf(
+            Waypoint("Start", geometry.first()),
+            Waypoint("Via 1", offset(0.0, 1000.0)),
+            Waypoint("Via 2", offset(1000.0, 1000.0)),
+            Waypoint("Via 3", offset(1000.0, 0.0)),
+            Waypoint("End", geometry.last())
+        )
+        return routeOf(geometry, waypoints, durationMinutes = 30.0)
+    }
+
+    @Test
+    fun aRoundTripDoesNotFinishTheMomentItStarts() {
+        val manager = manager()
+        val route = loopRoute()
+        manager.startNavigation(route)
+
+        // Standing at the start, which is also the finish.
+        manager.setPosition(route.routeGeometry!!.first(), 0f)
+
+        assertEquals(
+            "a loop must not report itself finished before it is ridden",
+            NavigationState.NAVIGATING, manager.uiState.value.state
+        )
+    }
+
+    @Test
+    fun aRoundTripStaysNavigatingAllTheWayRound() {
+        val manager = manager()
+        val route = loopRoute()
+        manager.startNavigation(route)
+
+        // Ride the loop, stopping short of the finish.
+        for (point in route.routeGeometry!!.dropLast(3)) {
+            manager.setPosition(point, 15f)
+            assertEquals(NavigationState.NAVIGATING, manager.uiState.value.state)
+        }
+    }
+
+    @Test
+    fun aRoundTripFinishesOnceTheWholeLoopIsRidden() {
+        val manager = manager()
+        val route = loopRoute()
+        manager.startNavigation(route)
+
+        for (point in route.routeGeometry!!) {
+            manager.setPosition(point, 15f)
+        }
+
+        assertEquals(NavigationState.ARRIVED, manager.uiState.value.state)
+    }
+
+    @Test
+    fun theFinalWaypointOfALoopIsNotMatchedBackToTheStart() {
+        val manager = manager()
+        val route = loopRoute()
+        manager.startNavigation(route)
+        manager.setPosition(route.routeGeometry!!.first(), 0f)
+
+        // Every waypoint but the start is still outstanding at the start line. If the
+        // end waypoint had been matched to index 0 it would already count as reached.
+        assertEquals(4, manager.outstandingWaypointCount())
+    }
+
+    @Test
+    fun skippingTheLoopMiddleStillLeavesWaypointsOutstanding() {
+        val manager = manager()
+        val route = loopRoute()
+        manager.startNavigation(route)
+
+        // Teleport to the far corner as a bad fix might: waypoints behind it count,
+        // but the ones after are still required before the ride can end.
+        manager.setPosition(offset(1000.0, 1000.0), 15f)
+
+        assertTrue(manager.outstandingWaypointCount() > 0)
+        assertEquals(NavigationState.NAVIGATING, manager.uiState.value.state)
+    }
+
+    @Test
+    fun aPointToPointRideStillArrivesNormally() {
+        val manager = manager()
+        val route = routeOf()
+        manager.startNavigation(route)
+
+        manager.setPosition(route.routeGeometry!!.last(), 0f)
+        assertEquals(NavigationState.ARRIVED, manager.uiState.value.state)
+    }
+
+    // ─── Rejoining after going off route ─────────────────────────────────────
+
+    @Test
+    fun rejoinTargetAimsAheadOfTheRiderNotBackAtThem() {
+        val manager = manager()
+        manager.startNavigation(routeOf())
+        // 300 m along the first leg but 200 m off to the north.
+        manager.setPosition(offset(200.0, 300.0), 15f)
+
+        val rejoin = manager.rejoinTarget(lookaheadMeters = 250.0)!!
+
+        assertTrue(
+            "rejoin at ${rejoin.distanceAlongRoute} m should be ahead of 300 m",
+            rejoin.distanceAlongRoute >= 500.0
+        )
+    }
+
+    @Test
+    fun rejoinTargetClampsToTheEndOfTheRoute() {
+        val manager = manager()
+        val route = routeOf()
+        manager.startNavigation(route)
+        manager.setPosition(offset(200.0, 950.0), 15f)
+
+        val rejoin = manager.rejoinTarget(lookaheadMeters = 5_000.0)!!
+        assertEquals(route.routeGeometry!!.lastIndex, rejoin.vertexIndex)
+    }
+
+    @Test
+    fun aRejoinRouteKeepsTheRestOfTheOriginalRide() {
+        val manager = manager()
+        val original = routeOf()
+        manager.startNavigation(original)
+        manager.setPosition(offset(300.0, 300.0), 15f)
+
+        val rejoin = manager.rejoinTarget(lookaheadMeters = 250.0)!!
+        // A detour from where the rider is back onto the route.
+        val detourGeometry = listOf(offset(300.0, 300.0), offset(150.0, 450.0), rejoin.point)
+        val detour = routeOf(
+            geometry = detourGeometry,
+            waypoints = listOf(
+                Waypoint("Current position", detourGeometry.first()),
+                Waypoint("Rejoin route", rejoin.point)
+            ),
+            durationMinutes = 2.0
+        )
+
+        val rejoined = manager.buildRejoinRoute(detour, rejoin)!!
+        val geometry = rejoined.routeGeometry!!
+
+        assertEquals("starts where the rider is", 0.0, geometry.first().distanceToMeters(detourGeometry.first()), 5.0)
+        assertEquals(
+            "ends where the original route ended",
+            0.0, geometry.last().distanceToMeters(original.routeGeometry!!.last()), 5.0
+        )
+        assertTrue("must carry the remaining original route, not just the detour", geometry.size > detourGeometry.size)
+        assertTrue(rejoined.turnInstructions!!.isNotEmpty())
+    }
+
+    @Test
+    fun aRejoinRouteCanBeNavigatedStraightAway() {
+        val manager = manager()
+        manager.startNavigation(routeOf())
+        manager.setPosition(offset(300.0, 300.0), 15f)
+
+        val rejoin = manager.rejoinTarget(lookaheadMeters = 250.0)!!
+        val detourGeometry = listOf(offset(300.0, 300.0), offset(150.0, 450.0), rejoin.point)
+        val detour = routeOf(
+            geometry = detourGeometry,
+            waypoints = listOf(
+                Waypoint("Current position", detourGeometry.first()),
+                Waypoint("Rejoin route", rejoin.point)
+            ),
+            durationMinutes = 2.0
+        )
+
+        assertTrue(manager.replaceRoute(manager.buildRejoinRoute(detour, rejoin)!!))
+
+        val state = manager.uiState.value
+        assertEquals(NavigationState.NAVIGATING, state.state)
+        assertFalse("the detour clears the off-route flag", state.isOffRoute)
+        assertTrue("the map needs the new line to draw", state.routeGeometry!!.isNotEmpty())
     }
 }

@@ -275,6 +275,49 @@ class NavigationViewModel(
         }
     }
 
+    /**
+     * Steer a strayed rider back onto the planned route.
+     *
+     * Only the detour is requested from the routing service; the rest of the original
+     * route is spliced on unchanged. Replanning end-to-end would silently throw away
+     * the curvy route the rider chose and hand them back the service's idea of the
+     * best way to the destination.
+     */
+    private fun rejoinRoute() {
+        val rejoin = navigationManager.rejoinTarget() ?: return
+        val here = navigationManager.currentPosition ?: return
+        val previous = navigationManager.route ?: return
+
+        if (recalculating) return
+        recalculating = true
+        lastRecalculationAtMs = System.currentTimeMillis()
+        navigationManager.setRecalculating(true)
+
+        viewModelScope.launch {
+            val detours = withContext(Dispatchers.IO) {
+                runCatching {
+                    routeService.calculateRoute(
+                        Waypoint("Current position", here),
+                        Waypoint("Rejoin route", rejoin.point),
+                        null,
+                        previous.routeType ?: RouteType.DIRECT,
+                        previous.avoidances
+                    )
+                }.getOrElse { emptyList() }
+            }
+
+            recalculating = false
+            val detour = detours.firstOrNull { !it.isEstimate }
+            val rejoined = detour?.let { navigationManager.buildRejoinRoute(it, rejoin) }
+
+            if (rejoined == null || !navigationManager.replaceRoute(rejoined)) {
+                navigationManager.setRecalculating(false)
+                _errorMessage.value =
+                    "Could not find a way back to the route. Rejoin it yourself or end the ride."
+            }
+        }
+    }
+
     private fun onStateChanged(state: NavigationUIState) {
         if (state.state != NavigationState.NAVIGATING) return
 
@@ -291,10 +334,7 @@ class NavigationViewModel(
         val cooledDown = System.currentTimeMillis() - lastRecalculationAtMs > RECALCULATION_COOLDOWN_MS
 
         if (offRouteNeedsNewRoute && cooledDown) {
-            recalculateTo(
-                navigationManager.remainingWaypoints(),
-                "Could not find a new route. Rejoin the original route or end the ride."
-            )
+            rejoinRoute()
         }
     }
 

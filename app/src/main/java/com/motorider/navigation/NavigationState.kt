@@ -34,6 +34,12 @@ data class NavigationUIState(
     val rawPosition: GeoPoint? = null,
     /** Direction of travel in degrees clockwise from north. */
     val bearing: Float = 0f,
+    /**
+     * Geometry of the route actually being ridden. Republished here because after an
+     * off-route detour this differs from the route the planning screen holds, and the
+     * map must draw the line the rider is being sent along.
+     */
+    val routeGeometry: List<GeoPoint>? = null,
     val currentInstruction: TurnInstruction? = null,
     val upcomingInstructions: List<TurnInstruction> = emptyList(),
     val warnings: List<NavigationWarning> = emptyList(),

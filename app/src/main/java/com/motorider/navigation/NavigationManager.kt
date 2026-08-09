@@ -17,6 +17,7 @@ import com.motorider.utils.NearestPointResult
 import com.motorider.utils.OffRouteDetector
 import com.motorider.utils.calculateCumulativeDistances
 import com.motorider.utils.distanceToMeters
+import com.motorider.utils.RouteUtils
 import com.motorider.utils.nearestPointOnPolyline
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,6 +34,14 @@ data class NavigationConfig(
     val arrivalRadiusMeters: Double = 40.0,
     /** How close to an intermediate waypoint the "skip" button appears. */
     val skipOfferRadiusMeters: Double = 500.0,
+    /**
+     * How short of a waypoint counts as having reached it. Route geometry rarely
+     * passes exactly through a requested waypoint, so an exact test would leave one
+     * permanently outstanding and a ride unable to finish.
+     */
+    val waypointReachedToleranceMeters: Double = 30.0,
+    /** How far along the route to aim when steering a strayed rider back onto it. */
+    val rejoinLookaheadMeters: Double = 250.0,
     val ttsTriggerZones: Map<ManeuverType, Double> = defaultTtsTriggerZones()
 )
 
@@ -72,6 +81,8 @@ class NavigationManager(
     private var cumulativeDistances: DoubleArray = DoubleArray(1)
     /** Distance along the route of each waypoint, parallel to `route.waypoints`. */
     private var waypointDistances: DoubleArray = DoubleArray(0)
+    /** Which waypoints the rider has ridden past, in order. */
+    private var waypointReached: BooleanArray = BooleanArray(0)
     private var lastSegmentIndex: Int = 0
     private var lastPosition: GeoPoint? = null
     private var lastSpeedMps: Float = 0f
@@ -157,19 +168,34 @@ class NavigationManager(
         val geometry = route.routeGeometry ?: return
         currentRoute = route
         cumulativeDistances = calculateCumulativeDistances(geometry)
-        waypointDistances = DoubleArray(route.waypoints.size) { wpIdx ->
-            var bestIndex = 0
-            var bestDist = Double.MAX_VALUE
+
+        // Match each waypoint to the geometry *after* the previous one, never to the
+        // globally nearest vertex. A round trip starts and finishes at the same place,
+        // so a global search maps its final waypoint back to index 0 — the route then
+        // looks zero-length and the ride reports itself finished before it begins.
+        waypointDistances = DoubleArray(route.waypoints.size)
+        var searchFrom = 0
+        for (wpIdx in route.waypoints.indices) {
             val target = route.waypoints[wpIdx].location
-            for (i in geometry.indices) {
+            var bestIndex = searchFrom
+            var bestDist = Double.MAX_VALUE
+            for (i in searchFrom until geometry.size) {
                 val d = target.distanceToMeters(geometry[i])
                 if (d < bestDist) {
                     bestDist = d
                     bestIndex = i
                 }
             }
-            cumulativeDistances[bestIndex]
+            waypointDistances[wpIdx] = cumulativeDistances[bestIndex]
+            // Leave room for the remaining waypoints so the last one cannot consume
+            // the whole polyline and strand those after it.
+            val remaining = route.waypoints.size - wpIdx - 1
+            searchFrom = minOf(bestIndex + 1, (geometry.size - 1 - remaining).coerceAtLeast(0))
         }
+
+        waypointReached = BooleanArray(route.waypoints.size)
+        // The rider is standing at the first waypoint when the ride starts.
+        if (waypointReached.isNotEmpty()) waypointReached[0] = true
         lastSegmentIndex = 0
     }
 
@@ -195,6 +221,7 @@ class NavigationManager(
         currentRoute = null
         cumulativeDistances = DoubleArray(1)
         waypointDistances = DoubleArray(0)
+        waypointReached = BooleanArray(0)
         lastSegmentIndex = 0
         offRouteDetector.reset()
         lastSpokenKey = null
@@ -289,6 +316,86 @@ class NavigationManager(
         return remaining
     }
 
+    /** A point on the planned route to steer back to after straying off it. */
+    data class RejoinTarget(
+        val point: GeoPoint,
+        val vertexIndex: Int,
+        val distanceAlongRoute: Double
+    )
+
+    /**
+     * Where to rejoin the planned route, [lookaheadMeters] further on than the point
+     * the rider is currently nearest to.
+     *
+     * The lookahead matters: aiming at the nearest point would often route the rider
+     * back the way they came, or into the junction they have just overshot. Aiming a
+     * little further along sends them forward onto the route instead.
+     */
+    fun rejoinTarget(lookaheadMeters: Double = config.rejoinLookaheadMeters): RejoinTarget? {
+        val geometry = currentRoute?.routeGeometry ?: return null
+        val position = lastPosition ?: return null
+        if (geometry.size < 2 || cumulativeDistances.size != geometry.size) return null
+
+        val nearest = nearestPointOnPolyline(position, geometry, cumulativeDistances)
+        val targetDistance = nearest.distanceAlongRoute + lookaheadMeters
+
+        val index = cumulativeDistances.indexOfFirst { it >= targetDistance }
+            .takeIf { it >= 0 } ?: geometry.lastIndex
+
+        return RejoinTarget(geometry[index], index, cumulativeDistances[index])
+    }
+
+    /**
+     * Stitch a detour that reaches [rejoin] onto the rest of the planned route.
+     *
+     * Off-route recovery deliberately preserves the original ride rather than
+     * replanning end-to-end: the rider chose a curvy route, and routing them straight
+     * to the destination from wherever they strayed would quietly discard it.
+     */
+    fun buildRejoinRoute(detour: Route, rejoin: RejoinTarget): Route? {
+        val route = currentRoute ?: return null
+        val geometry = route.routeGeometry ?: return null
+        val detourGeometry = detour.routeGeometry
+        if (detourGeometry.isNullOrEmpty()) return null
+        if (rejoin.vertexIndex !in geometry.indices) return null
+        if (cumulativeDistances.size != geometry.size) return null
+
+        // Drop the detour's final point if it is the rejoin vertex, so the seam does
+        // not leave a zero-length segment for the instruction generator to trip on.
+        val head = if (detourGeometry.last().distanceToMeters(geometry[rejoin.vertexIndex]) < 1.0) {
+            detourGeometry.dropLast(1)
+        } else {
+            detourGeometry
+        }
+        val combined = head + geometry.subList(rejoin.vertexIndex, geometry.size)
+        if (combined.size < 2) return null
+
+        val totalDistance = cumulativeDistances.last()
+        val remainderMeters = (totalDistance - rejoin.distanceAlongRoute).coerceAtLeast(0.0)
+        val remainderMinutes = if (totalDistance > 0) {
+            route.duration * (remainderMeters / totalDistance)
+        } else 0.0
+
+        val ahead = route.waypoints.filterIndexed { i, _ ->
+            waypointDistances.getOrElse(i) { 0.0 } > rejoin.distanceAlongRoute
+        }.ifEmpty { listOfNotNull(route.waypoints.lastOrNull()) }
+
+        val waypoints = listOf(Waypoint("Current position", head.first())) + ahead
+        val durationMinutes = detour.duration + remainderMinutes
+
+        return Route(route.name, waypoints).apply {
+            routeGeometry = combined
+            distance = detour.distance + remainderMeters / 1000.0
+            duration = durationMinutes
+            routeType = route.routeType
+            avoidances = route.avoidances
+            curvatureScore = route.curvatureScore
+            turnInstructions = RouteUtils.generateTurnInstructions(
+                combined, waypoints, durationMinutes * 60.0
+            )
+        }
+    }
+
     /** Waypoints still ahead of the rider, for rebuilding a route on recalculation. */
     fun remainingWaypoints(): List<Waypoint> {
         val route = currentRoute ?: return emptyList()
@@ -335,8 +442,15 @@ class NavigationManager(
                         config.skipOfferRadiusMeters
             }?.name
 
-        val arrived = distanceRemaining <= config.arrivalRadiusMeters ||
-            position.distanceToMeters(geometry.last()) <= config.arrivalRadiusMeters
+        markWaypointsReached(nearest.distanceAlongRoute)
+
+        // Arrival needs the whole route ridden AND every waypoint visited in turn.
+        // Proximity to the final point alone is not enough: a round trip finishes
+        // where it starts, so that test is true before the rider has moved. Requiring
+        // the waypoints in order is also what stops a route that doubles back on
+        // itself from being declared finished on the outbound leg.
+        val arrived = distanceRemaining <= config.arrivalRadiusMeters &&
+            waypointReached.all { it }
 
         _uiState.value = _uiState.value.copy(
             state = if (arrived) ARRIVED else NAVIGATING,
@@ -350,6 +464,7 @@ class NavigationManager(
             position = if (isOff) position else nearest.point,
             rawPosition = position,
             bearing = lastBearingDegrees,
+            routeGeometry = geometry,
             currentInstruction = if (arrived) {
                 route.turnInstructions?.lastOrNull { it.maneuverType == ManeuverType.ARRIVE }
             } else currentInstruction,
@@ -438,6 +553,27 @@ class NavigationManager(
         if (lastFixElapsedMs == 0L) return false
         return (clock() - lastFixElapsedMs) / 1000L > config.gpsLossTimeoutSeconds
     }
+
+    /**
+     * Tick off every waypoint the rider has now ridden past.
+     *
+     * Strictly in order — a later waypoint cannot count as reached while an earlier
+     * one is outstanding, which is what makes "has the whole loop been ridden?" a
+     * meaningful question on a route that returns to its start.
+     */
+    private fun markWaypointsReached(distanceAlongRoute: Double) {
+        for (i in waypointReached.indices) {
+            if (waypointReached[i]) continue
+            if (distanceAlongRoute >= waypointDistances[i] - config.waypointReachedToleranceMeters) {
+                waypointReached[i] = true
+            } else {
+                break
+            }
+        }
+    }
+
+    /** Waypoints still to be visited, for callers deciding whether a ride can end. */
+    fun outstandingWaypointCount(): Int = waypointReached.count { !it }
 
     /**
      * Which leg of a multi-waypoint route the rider is on: the index of the waypoint

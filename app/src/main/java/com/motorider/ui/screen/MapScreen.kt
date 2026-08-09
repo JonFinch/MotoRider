@@ -276,14 +276,21 @@ fun MapScreen(
         else "%.1f".format(km) + " km"
     }
 
-    LaunchedEffect(selectedRouteIndex, currentRoutes, navigating) {
-        val route = currentRoutes.getOrNull(selectedRouteIndex) ?: return@LaunchedEffect
-        route.routeGeometry?.let { geometry ->
-            mapRenderer.renderMotorcycleRoute(mapView, geometry)
-            mapView?.invalidate()
-            // NavigationMapCamera owns the map once riding; framing here would fight it.
-            if (!navigating) mapRenderer.frameRoute(mapView, geometry)
-        }
+    // While riding, draw the route navigation is actually following. After an
+    // off-route detour that is no longer the route the planning screen holds, and
+    // showing the old line would point the rider at a road they are not being sent
+    // down.
+    LaunchedEffect(selectedRouteIndex, currentRoutes, navigating, navState.routeGeometry) {
+        val geometry = if (navigating) {
+            navState.routeGeometry
+        } else {
+            currentRoutes.getOrNull(selectedRouteIndex)?.routeGeometry
+        } ?: return@LaunchedEffect
+
+        mapRenderer.renderMotorcycleRoute(mapView, geometry)
+        mapView?.invalidate()
+        // NavigationMapCamera owns the map once riding; framing here would fight it.
+        if (!navigating) mapRenderer.frameRoute(mapView, geometry)
     }
 
     // OSM's default tiles are bright white - a real glare hazard on a handlebar-mounted
