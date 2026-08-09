@@ -195,22 +195,19 @@ wrong answers rather than obvious failures:
 | `ACCESS_FINE_LOCATION` | position on map and along route |
 | `ACCESS_COARSE_LOCATION` | not optional — from Android 12 the system *ignores* a runtime request for FINE that does not also ask for COARSE |
 | `FOREGROUND_SERVICE` + `_LOCATION` + `_DATA_SYNC` | navigation and tile-download services |
-| `POST_NOTIFICATIONS` | both services show an ongoing notification |
+| `POST_NOTIFICATIONS` | both services show an ongoing notification. Requested at runtime on API 33+ when a ride starts, and never allowed to block one |
 
 `android.hardware.location.gps` is declared as required — the app is not useful
 without it.
 
 ## Known gaps
 
-- `POST_NOTIFICATIONS` is declared but never requested at runtime, so on Android 13+
-  the foreground-service notifications will not appear until it is.
-- After planning, the map does not zoom to the route's bounds — plan a route far
-  from the current view and the polyline is drawn off-screen.
-- `MyLocationNewOverlay` runs its own GPS subscription alongside `NavigationService`,
-  so two location streams are live during a ride. Worth collapsing into one.
+- `NavigationService` also registers a low-rate `NETWORK_PROVIDER` request (4 s, 10 m)
+  as a coarse stand-in while GPS acquires, so a ride holds one GPS listener plus one
+  network listener. Deliberate, but worth revisiting for battery.
 - No speed-limit data: the routing API returns none, and inferring limits from road
-  class would be guesswork a rider might act on. `Speedometer` therefore shows
-  current speed only, and the limit indicator stays dormant.
+  class would be guesswork a rider might act on. `CompactSpeedometer` therefore shows
+  current speed only.
 - No offline routing. Offline maps cover tiles only; planning a route needs a
   connection.
 - Planning UI lives in one ~1600-line `MapScreen.kt` and is the obvious next
