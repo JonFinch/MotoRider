@@ -3,14 +3,17 @@ package com.motorider.ui.screen
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
@@ -191,6 +194,25 @@ fun MapScreen(
         // precise grant counts as success.
         if (results[Manifest.permission.ACCESS_FINE_LOCATION] != true) {
             Toast.makeText(context, context.getString(R.string.nav_permission_denied), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Unlike location, notifications are a nicety - the lock-screen turn prompt and
+    // Pause/End actions - so a denial is silently accepted rather than gating the
+    // ride or showing a rationale dialog.
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* no-op: navigation proceeds the same whether this is granted or denied */ }
+
+    // POST_NOTIFICATIONS is only a runtime permission from Android 13 (TIRAMISU) on;
+    // on older versions it's granted at install time and requesting it is a no-op
+    // that risks confusing the rider with a needless system dialog.
+    fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
@@ -429,6 +451,7 @@ fun MapScreen(
                         onNavigate = {
                             val selectedRoute = currentRoutes.getOrNull(selectedRouteIndex)
                             if (selectedRoute != null) {
+                                requestNotificationPermissionIfNeeded()
                                 navigationViewModel.startNavigation(selectedRoute)
                                 currentScreen = Screen.Navigation
                             }
@@ -498,6 +521,7 @@ fun MapScreen(
                                      isGeocoding = false
                                  },
                                  onNavigate = { route ->
+                                     requestNotificationPermissionIfNeeded()
                                      navigationViewModel.startNavigation(route)
                                      currentScreen = Screen.Navigation
                                  },
@@ -532,6 +556,7 @@ fun MapScreen(
                              onNavigate = {
                                  val selectedRoute = currentRoutes.getOrNull(selectedRouteIndex)
                                  if (selectedRoute != null) {
+                                    requestNotificationPermissionIfNeeded()
                                     navigationViewModel.startNavigation(selectedRoute)
                                     currentScreen = Screen.Navigation
                                 } else {
