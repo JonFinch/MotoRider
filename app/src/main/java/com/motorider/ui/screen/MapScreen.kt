@@ -184,6 +184,31 @@ fun MapScreen(
         }
     }
 
+    // Unlike location, notifications are a nicety - the lock-screen turn prompt and
+    // Pause/End actions - so a denial is silently accepted rather than gating the
+    // ride or showing a rationale dialog.
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* no-op: navigation proceeds the same whether this is granted or denied */ }
+
+    // POST_NOTIFICATIONS is only a runtime permission from Android 13 (TIRAMISU) on;
+    // on older versions it's granted at install time and requesting it is a no-op
+    // that risks confusing the rider with a needless system dialog.
+    //
+    // Only ever asked once the ride is actually going ahead. Location is requested
+    // first and can refuse the ride outright, so asking in parallel would stack a
+    // second system dialog on top of the location rationale and ask about
+    // notifications for a ride that is not about to start.
+    fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (!navigationViewModel.hasLocationPermission()) return
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     // Both permissions go in one request: from Android 12 the system ignores a
     // request for ACCESS_FINE_LOCATION that does not also ask for COARSE, so a
     // fine-only launcher never shows the rider a dialog at all.
@@ -195,25 +220,10 @@ fun MapScreen(
         // precise grant counts as success.
         if (results[Manifest.permission.ACCESS_FINE_LOCATION] != true) {
             Toast.makeText(context, context.getString(R.string.nav_permission_denied), Toast.LENGTH_LONG).show()
-        }
-    }
-
-    // Unlike location, notifications are a nicety - the lock-screen turn prompt and
-    // Pause/End actions - so a denial is silently accepted rather than gating the
-    // ride or showing a rationale dialog.
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { /* no-op: navigation proceeds the same whether this is granted or denied */ }
-
-    // POST_NOTIFICATIONS is only a runtime permission from Android 13 (TIRAMISU) on;
-    // on older versions it's granted at install time and requesting it is a no-op
-    // that risks confusing the rider with a needless system dialog.
-    fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            // Location just went through, so this is the first moment the
+            // notification prompt is not competing with it.
+            requestNotificationPermissionIfNeeded()
         }
     }
 
