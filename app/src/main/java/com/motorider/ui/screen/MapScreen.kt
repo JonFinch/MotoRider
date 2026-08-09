@@ -160,6 +160,7 @@ fun MapScreen(
 
     val navState by navigationViewModel.uiState.collectAsState()
     val navError by navigationViewModel.errorMessage.collectAsState()
+    val navLocation by navigationViewModel.locationFlow.collectAsState()
 
     // Hold the display awake for the whole ride. The service's PARTIAL_WAKE_LOCK only
     // keeps the CPU running so fixes keep arriving — it does nothing for the screen,
@@ -415,7 +416,12 @@ fun MapScreen(
                     },
                     onMapPinched = {
                         navigationCamera.onUserZoomGesture(android.os.SystemClock.elapsedRealtime())
-                    }
+                    },
+                    // NavigationService already holds the one GPS subscription driving
+                    // guidance; relaying its fixes here keeps the blue dot moving without
+                    // the overlay opening a second subscription of its own.
+                    isNavigating = navigating,
+                    navigationFix = navLocation?.location
                 )
 
                 // These two sit outside the screen `when` so they can float over the

@@ -1,12 +1,14 @@
 package com.motorider.ui.component
 
 import android.content.Context
+import android.location.Location
 import android.os.Looper
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ViewGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -18,7 +20,64 @@ import com.motorider.utils.MapTileSource
 import org.osmdroid.config.Configuration
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+import org.osmdroid.views.overlay.mylocation.IMyLocationConsumer
+import org.osmdroid.views.overlay.mylocation.IMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+
+/**
+ * Backs the "you are here" overlay with whichever GPS subscription is authoritative
+ * right now, so the app never holds two at once.
+ *
+ * Off navigation, nothing else on screen wants location, so this behaves like the
+ * overlay's own default provider and subscribes to GPS itself. While navigating,
+ * `NavigationService` already holds the one subscription driving turn-by-turn
+ * guidance; this relays its fixes instead of opening a second one purely to keep
+ * the blue dot moving — pure battery cost for no extra accuracy on a ride.
+ */
+private class RelayLocationProvider(context: Context) : IMyLocationProvider {
+    private val gpsProvider = GpsMyLocationProvider(context)
+    private var consumer: IMyLocationConsumer? = null
+    private var started = false
+    private var navigating = false
+    private var lastPushed: Location? = null
+
+    override fun startLocationProvider(myLocationConsumer: IMyLocationConsumer?): Boolean {
+        consumer = myLocationConsumer
+        started = true
+        return if (navigating) true else gpsProvider.startLocationProvider(myLocationConsumer)
+    }
+
+    override fun stopLocationProvider() {
+        started = false
+        gpsProvider.stopLocationProvider()
+    }
+
+    override fun getLastKnownLocation(): Location? =
+        if (navigating) lastPushed else gpsProvider.lastKnownLocation
+
+    override fun destroy() {
+        gpsProvider.destroy()
+    }
+
+    /** Fed a fix relayed from NavigationService; ignored unless currently navigating. */
+    fun push(location: Location) {
+        lastPushed = location
+        if (navigating && started) consumer?.onLocationChanged(location, this)
+    }
+
+    fun setNavigating(isNavigating: Boolean) {
+        if (navigating == isNavigating) return
+        navigating = isNavigating
+        val c = consumer ?: return
+        if (!started) return
+        if (isNavigating) {
+            gpsProvider.stopLocationProvider()
+        } else {
+            gpsProvider.startLocationProvider(c)
+        }
+    }
+}
 
 @Composable
 fun OsmMapView(
@@ -31,7 +90,11 @@ fun OsmMapView(
      * osmdroid's zoom events, because those fire for programmatic zooms too and a
      * following camera could not tell its own changes from the rider's.
      */
-    onMapPinched: (() -> Unit)? = null
+    onMapPinched: (() -> Unit)? = null,
+    /** True for the duration of a ride — see [RelayLocationProvider]. */
+    isNavigating: Boolean = false,
+    /** Latest fix from NavigationService, relayed to the overlay while navigating. */
+    navigationFix: Location? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -52,8 +115,10 @@ fun OsmMapView(
         }
     }
 
+    val relayProvider = remember { RelayLocationProvider(context) }
+
     val locationOverlay = remember {
-        MyLocationNewOverlay(mapView).apply {
+        MyLocationNewOverlay(relayProvider, mapView).apply {
             enableMyLocation()
             runOnFirstFix {
                 myLocation?.let { loc ->
@@ -65,6 +130,14 @@ fun OsmMapView(
                 }
             }
         }
+    }
+
+    LaunchedEffect(isNavigating) {
+        relayProvider.setNavigating(isNavigating)
+    }
+
+    LaunchedEffect(navigationFix) {
+        navigationFix?.let(relayProvider::push)
     }
 
     DisposableEffect(Unit) {
