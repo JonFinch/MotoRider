@@ -265,11 +265,13 @@ fun MapScreen(
         else "%.1f".format(km) + " km"
     }
 
-    LaunchedEffect(selectedRouteIndex, currentRoutes) {
+    LaunchedEffect(selectedRouteIndex, currentRoutes, navigating) {
         val route = currentRoutes.getOrNull(selectedRouteIndex) ?: return@LaunchedEffect
         route.routeGeometry?.let { geometry ->
             mapRenderer.renderMotorcycleRoute(mapView, geometry)
             mapView?.invalidate()
+            // NavigationMapCamera owns the map once riding; framing here would fight it.
+            if (!navigating) mapRenderer.frameRoute(mapView, geometry)
         }
     }
 
