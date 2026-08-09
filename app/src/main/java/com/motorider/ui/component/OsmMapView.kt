@@ -25,7 +25,13 @@ fun OsmMapView(
     modifier: Modifier = Modifier,
     onLocationReceived: ((GeoPoint) -> Unit)? = null,
     onMapViewReady: ((MapView) -> Unit)? = null,
-    onMapTapped: (() -> Unit)? = null
+    onMapTapped: (() -> Unit)? = null,
+    /**
+     * Fired while the rider is pinching. Reported from here rather than by watching
+     * osmdroid's zoom events, because those fire for programmatic zooms too and a
+     * following camera could not tell its own changes from the rider's.
+     */
+    onMapPinched: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -69,7 +75,7 @@ fun OsmMapView(
         }
     }
 
-    DisposableEffect(onMapTapped) {
+    DisposableEffect(onMapTapped, onMapPinched) {
         val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapUp(e: MotionEvent): Boolean {
                 if (e.pointerCount == 1) {
@@ -80,6 +86,10 @@ fun OsmMapView(
         })
         val listener = android.view.View.OnTouchListener { _, event ->
             detector.onTouchEvent(event)
+            // Two pointers down can only be the rider; osmdroid never synthesises it.
+            if (event.pointerCount >= 2) {
+                onMapPinched?.invoke()
+            }
             false
         }
         mapView.setOnTouchListener(listener)

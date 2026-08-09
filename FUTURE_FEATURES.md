@@ -66,19 +66,19 @@
 - [x] Route elevation gain calculation display
 - [x] Route alternative generation (show 2-3 route options)
 
-### Phase 2 — Maps & Offline [IN PROGRESS]
+### Phase 2 — Maps & Offline [IN PROGRESS — 2 of 6 complete]
 
-- [ ] **2.1 Offline map downloads (per region)** — South East UK (Kent, Sussex, London, Essex)
-- [ ] 2.2 Offline routing engine (embedded)
-- [ ] 2.3 Offline address search
-- [ ] 2.4 Map tile caching for frequently visited areas
-- [ ] 2.5 Map layer selection (standard, satellite, terrain)
+- [x] **2.1 Offline map downloads (per region)** — South East UK (Kent, Sussex, London, Essex)
+- [ ] 2.2 Offline routing engine (embedded) — *Deferred: not reasonably implementable on Android without excessive storage and complexity*
+- [ ] 2.3 Offline address search — *Deferred: not feasible without offline routing engine*
+- [x] 2.4 Map tile caching for frequently visited areas
+- [ ] 2.5 Map layer selection (standard, satellite, terrain) — *Saved for later*
   - [ ] Additional tile sources: OpenTopoMap (terrain)
   - [ ] Additional tile sources: Esri World Imagery (satellite)
   - [ ] Additional tile sources: CyclOSM (cycling-focused)
   - [ ] Additional tile sources: Stamen Terrain
   - [ ] Custom tile source support (user-defined URLs)
-- [ ] 2.6 Weather overlay on map
+- [ ] 2.6 Weather overlay on map — *Saved for later*
 
 ### Phase 3 — Import / Export & Sharing
 
@@ -154,4 +154,4 @@
 
 ---
 
-*Last updated: 2026-07-31*
+*Last updated: 2026-08-08 — Phase 2: 2.1 (offline maps) and 2.4 (tile caching) complete. 2.2 and 2.3 deferred. 2.5 and 2.6 saved for later.*

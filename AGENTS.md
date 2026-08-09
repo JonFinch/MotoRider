@@ -1,121 +1,224 @@
-# MotoRider - Migration Complete
+# MotoRider
 
-## Migration Status: ✅ COMPLETE
+An Android app for planning and riding motorcycle routes, built around curvy-road
+routing rather than fastest-route routing. Kotlin + Jetpack Compose, OpenStreetMap
+map data via osmdroid, and a separate self-hosted routing API (MotoRiderMaps).
 
-The MotoRider Android app has been successfully migrated from Java/XML to a modern architecture with Kotlin and improved UI components.
+## Build and test
 
-### ✅ What Was Accomplished
+```bash
+./gradlew assembleDebug        # build
+./gradlew testDebugUnitTest    # unit tests (JVM, no device needed)
+./gradlew installDebug         # install on a connected device/emulator
+```
 
-1. **Build Configuration**: Updated to modern Gradle with Kotlin support
-2. **Model Classes**: Converted all Java model classes to Kotlin data classes
-3. **Utilities**: Converted RouteUtils to Kotlin with improved error handling
-4. **Services**: Converted RouteService and NavigationService to Kotlin
-5. **Application Class**: Converted MotoRiderApplication to Kotlin
-6. **Map Rendering**: Converted MotorcycleMapRenderer to Kotlin
-7. **UI Layer**: Created modern UI components with proper lifecycle handling
-8. **Tests**: Converted all test files to Kotlin with proper assertions
-9. **AndroidManifest**: Updated to use new architecture
+Kotlin 100%, no Java sources. Gradle Groovy DSL, `compileSdk`/`targetSdk` 36,
+`minSdk` 24.
 
-### 🔧 Technical Details
+### Pointing at a routing API
 
-#### Architecture
-- **Language**: Kotlin (100% conversion from Java)
-- **UI Framework**: Android Views with Kotlin (Compose compatibility issues resolved)
-- **Build System**: Gradle with Kotlin plugin
-- **Map Engine**: osmdroid with OpenStreetMap tiles
-- **Routing**: OSRM (Open Source Routing Machine) with local server support
+`ApiConfig` reads its URLs from `BuildConfig`, set per build type in
+`app/build.gradle` — nothing is hardcoded, because the right value differs per
+target and a release build must not point at a developer's LAN box.
 
-#### Key Features
-- **Route Planning**: Support for start/end locations with intermediate waypoints
-- **Vehicle Types**: Motorcycle, Truck, Car, Bike selection
-- **Route Preferences**: Direct, Fast, Curvy, Extra Curvy routing
-- **Avoidances**: Highways, Toll Roads, Ferries, Unpaved Roads, Narrow Roads
-- **Geocoding**: Nominatim OpenStreetMap integration
-- **Navigation**: Foreground service with persistent notification
+```bash
+# Emulator (default): host loopback at 10.0.2.2:8080
+./gradlew installDebug
 
-#### Testing
-- **Unit Tests**: All converted to Kotlin with JUnit assertions
-- **Route Calculation**: Tests for different vehicle types and preferences
-- **Geocoding**: Tests for various response formats
-- **Curvature**: Tests for route curvature scoring
-- **Elevation**: Tests for elevation gain calculation
+# Physical device: the host's LAN IP
+./gradlew installDebug -PmotoRiderDevApiBase=http://192.168.68.52:8080
 
-### 📁 Project Structure
+# Self-hosted tileserver-gl instead of public OSM tiles
+./gradlew installDebug -PmotoRiderTileBase=http://192.168.68.52:8081/styles/basic-preview
+```
+
+Release builds default `ROUTING_API_BASE_URL` to `https://api.motorider.invalid`
+deliberately — override with `-PmotoRiderApiBase=` when a hosted API exists.
+
+## Layout
 
 ```
 app/src/main/java/com/motorider/
-├── MotoRiderApplication.kt          # App initialization
-├── activities/                      # Activity classes
-│   ├── MainActivity.java           # Main activity (Java for compatibility)
-│   └── TestMainActivity.java       # Test activity
-├── fragments/                       # Fragment classes
-│   ├── MapFragment.java            # Map display fragment
-│   └── RoutePlanningDialogFragment.java  # Route planning dialog
-├── models/                          # Data models (Kotlin)
-│   ├── Route.kt                    # Route data class
-│   ├── Waypoint.kt                 # Waypoint data class
-│   ├── RouteType.kt               # Vehicle type enums
-│   └── Avoidance.kt               # Avoidance enums
-├── services/                        # Service classes (Kotlin)
-│   ├── RouteService.kt            # Route calculation
-│   └── NavigationService.java     # Navigation service (Java for compatibility)
-├── utils/                           # Utility classes (Kotlin)
-│   └── RouteUtils.kt              # Geocoding, curvature, OSRM parsing
-└── maps/                           # Map rendering (Kotlin)
-    └── MotorcycleMapRenderer.kt   # Route polyline rendering
+├── MotoRiderApplication.kt      osmdroid config; raises the tile-cache cap so
+│                                trimming cannot delete offline regions
+├── activities/MainActivity.kt   single activity, hosts MapScreen
+├── config/ApiConfig.kt          API + tile base URLs from BuildConfig
+├── models/                      Route, Waypoint, RouteType, Avoidance,
+│                                TurnInstruction, NavigationWarning, OfflineRegion
+├── services/
+│   ├── RouteService.kt          POSTs to the routing API; falls back to a
+│   │                            straight-line ESTIMATE flagged as such
+│   ├── NavigationService.kt     foreground service, GPS collection only
+│   ├── TileDownloadService.kt   foreground service, offline region downloads
+│   └── TileStorageManager.kt    osmdroid tile cache read/write and expiry repair
+├── navigation/
+│   ├── NavigationManager.kt     the live navigation state machine
+│   ├── NavigationState.kt       NavigationState enum + NavigationUIState
+│   └── TTSManager.kt            TextToSpeech wrapper
+├── ui/
+│   ├── screen/                  MapScreen (planning, ~1600 lines),
+│   │                            NavigationScreen, OfflineMapManagerScreen
+│   ├── component/               OsmMapView, TurnBanner, Speedometer,
+│   │                            NextManeuverCard
+│   ├── viewmodel/               NavigationViewModel, OfflineMapManagerViewModel
+│   └── theme/                   Material 3 theme, light/dark/system
+├── utils/
+│   ├── RouteUtils.kt            geocoding, API response parsing, turn-instruction
+│   │                            generation
+│   ├── NavigationUtils.kt       pure geometry: snapping, bearings, off-route
+│   └── MapTileSource.kt         tile source wiring
+└── maps/MotorcycleMapRenderer.kt   route polyline rendering
 ```
 
-### 🧪 Testing
+## Features
 
-All tests pass successfully:
-- RouteServiceTest: 7 tests ✅
-- RouteModelTest: 6 tests ✅
-- RouteUtilsTest: 20 tests ✅
+**Route planning** — start, end and intermediate waypoints, geocoded through
+Nominatim. Four ride styles (Direct / Fast / Curvy / Extra Curvy) and five
+avoidances (highways, tolls, ferries, unpaved, tracks & service roads). Returns
+several ranked alternatives with distance, duration, curves/km and elevation gain.
 
-### 🚀 Building and Running
+**Quick Ride** — generates a round trip of a chosen distance and compass direction
+from the rider's current position.
 
-```bash
-# Build the project
-./gradlew build
+**Turn-by-turn navigation** — GPS tracking against the planned route geometry, with
+spoken and on-screen manoeuvres, live ETA, a speedometer, off-route recalculation
+and skippable intermediate waypoints. See "Navigation architecture" below.
 
-# Run unit tests
-./gradlew testDebugUnitTest
+**Offline maps** — predefined regions downloaded into osmdroid's tile cache for
+riding without coverage, with a connectivity banner making it obvious when routing
+calls will fail.
 
-# Install on device
-./gradlew installDebug
+**Theming** — light / dark / system. Dark mode applies osmdroid's `INVERT_COLORS`
+to the map: OSM's default white tiles are a genuine glare hazard on a
+handlebar-mounted phone at night.
+
+## Navigation architecture
+
+```
+NavigationScreen (Compose, stateless — takes state, emits callbacks)
+   └── NavigationViewModel      binds the service, owns TTS + recalculation
+        ├── NavigationService   foreground service; GPS only, no route logic.
+        │                       Publishes StateFlow<LocationResult?> over a Binder
+        └── NavigationManager   state machine: snapping, progress, instructions,
+             └── NavigationUtils    off-route detection, arrival
+                                    (pure functions, fully unit-tested)
+
+NavigationMapCamera (in MapScreen) — follows the rider on the shared MapView
+   └── NavigationCamera         heading-up rotation, speed-based zoom, pinch
+                                override (pure logic, unit-tested)
 ```
 
-### 🔍 Key Implementation Details
+While navigating, `NavigationScreen` is a **transparent overlay** over the map that
+`MapScreen` already owns — controls at top and bottom, map through the middle.
+There is deliberately only one `MapView` in the app: it already carries the route
+polyline, the tile cache and any offline regions, and a second one would duplicate
+all of that. `MapScreen` also holds `view.keepScreenOn` for the duration of a ride;
+the service's `PARTIAL_WAKE_LOCK` keeps only the CPU alive, not the display.
 
-#### osmdroid Integration
-- MapView properly initialized with MAPNIK tile source
-- `setBuiltInZoomControls(false)` disables default zoom buttons
-- `setMultiTouchControls(true)` enables pinch-to-zoom gestures
-- Location overlay with MyLocationNewOverlay
+Deliberate choices worth preserving:
 
-#### Routing Engine
-- Local OSRM server (`localhost:5001`) for avoidances
-- Public OSRM server (`router.project-osrm.org`) for standard routing
-- Fallback to straight-line distance when OSRM unavailable
-- Curvature scoring and elevation gain calculation
+- **`LocationManager`, not Play Services.** Keeps the app usable on devices without
+  Google Play and avoids a ~5 MB dependency.
+- **The service knows nothing about routes.** It collects fixes and renders
+  whatever notification text it is handed. All logic lives in `NavigationManager`,
+  which is why the manager is testable on the JVM.
+- **`NavigationManager` takes plain `GeoPoint`s** via `setPosition`, so tests never
+  need Android's `Location` class. `setLocation` delegates to it.
+- **Foreground-only navigation.** `ACCESS_BACKGROUND_LOCATION` is not declared; a
+  location-typed foreground service covers the use case without the Play Store
+  justification background location demands.
 
-#### Permissions
-- `ACCESS_FINE_LOCATION` - User location overlay
-- `INTERNET` - OSRM routing and Nominatim geocoding
-- `FOREGROUND_SERVICE_LOCATION` - Navigation service
+### Units — the easiest thing to get wrong here
 
-### ⚠️ Known Limitations
+| Type | Distance | Duration |
+|---|---|---|
+| `Route` | **kilometres** | **minutes** |
+| `NavigationUIState` | **metres** | **seconds** |
+| `TurnInstruction` | **metres** | **seconds** |
+| `LocationResult.speed` | — | **metres/second** |
 
-1. **Compose Compatibility**: The AGP 9.3.1 toolchain has compatibility issues with Jetpack Compose, so the UI uses Android Views with Kotlin instead.
-2. **Navigation Service**: Currently a stub - full navigation integration would require additional implementation.
-3. **Route Planning Dialog**: Simplified implementation - full feature parity would require additional development.
+`NavigationManager` converts at the boundary and nowhere else. Mixing these was the
+single largest source of bugs in this code.
 
-### 📈 Future Improvements
+`TurnInstruction` carries two distances that are easy to confuse:
+`distanceAlongRoute` is fixed at route-creation time (distance from the *start*),
+while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
+(distance from the *rider*). Stored instructions always have the latter at 0.
 
-1. **Compose Migration**: When AGP 9.4.0+ is available with fixed Kotlin 2.1.x integration
-2. **Navigation Integration**: Full turn-by-turn navigation implementation
-3. **Offline Maps**: Support for offline map tiles
-4. **Route Optimization**: Advanced route optimization algorithms
-5. **Real-time Traffic**: Integration with traffic data services
+## Conventions
 
-The migration is complete and the app is fully functional with all tests passing.
+- **Honesty about degraded results is a product requirement, not polish.** When the
+  routing API is unreachable, `RouteService` returns a straight-line estimate with
+  `isEstimate = true` and the UI says so loudly — a rider following an unflagged
+  straight line would ride across whatever lies between the points. The same applies
+  to `avoidancesHonoured` and `curvatureAvailable`: silently ignoring a ticked
+  "Avoid Ferries" is the exact failure the feature exists to prevent.
+- **Comments explain *why*, not *what*.** Most non-obvious code here encodes a
+  platform constraint or a safety consideration; keep that reasoning with it.
+- **User-facing strings live in `strings.xml`.** No hardcoded UI text.
+- **Route geometry is dense.** Thousands of vertices on a long route — anything
+  running per-vertex per-GPS-fix needs to be cheap or windowed.
+
+## Testing
+
+87 JVM unit tests, no device required:
+
+| Suite | Covers |
+|---|---|
+| `NavigationUtilsTest` | snapping, cross-track distance, bearings, off-route |
+| `NavigationManagerTest` | state machine, progress, units, arrival, waypoints |
+| `NavigationCameraTest` | speed→zoom curve, heading smoothing, pinch override |
+| `TurnInstructionsTest` | manoeuvre generation from geometry |
+| `RouteUtilsTest` | geocoding and API response parsing |
+| `RouteServiceTest`, `RouteModelTest`, `RoundTripTest` | routing and models |
+
+`testOptions { unitTests.returnDefaultValues = true }` lets classes that log be
+exercised on the JVM. `NavigationManager.clock` is injectable so time-based
+behaviour (GPS loss) is testable without waiting.
+
+Two scenarios are worth keeping tests around, because both produce plausible-looking
+wrong answers rather than obvious failures:
+
+- **Round trips.** Outbound and return legs can run metres apart, so an
+  unconstrained nearest-point search snaps to the wrong leg and reports the rider as
+  nearly home on departure. Snapping is windowed around the last known position.
+- **GPS spikes.** An EMA carries a single outlier above the threshold for several
+  samples, so "3 consecutive readings" must count *raw* readings; the smoothed value
+  is only for hysteresis.
+
+## Permissions
+
+| Permission | Why |
+|---|---|
+| `INTERNET` | routing API, Nominatim, tile downloads |
+| `ACCESS_NETWORK_STATE` | offline banner, download guard |
+| `ACCESS_FINE_LOCATION` | position on map and along route |
+| `ACCESS_COARSE_LOCATION` | not optional — from Android 12 the system *ignores* a runtime request for FINE that does not also ask for COARSE |
+| `FOREGROUND_SERVICE` + `_LOCATION` + `_DATA_SYNC` | navigation and tile-download services |
+| `POST_NOTIFICATIONS` | both services show an ongoing notification |
+
+`android.hardware.location.gps` is declared as required — the app is not useful
+without it.
+
+## Known gaps
+
+- `POST_NOTIFICATIONS` is declared but never requested at runtime, so on Android 13+
+  the foreground-service notifications will not appear until it is.
+- After planning, the map does not zoom to the route's bounds — plan a route far
+  from the current view and the polyline is drawn off-screen.
+- `MyLocationNewOverlay` runs its own GPS subscription alongside `NavigationService`,
+  so two location streams are live during a ride. Worth collapsing into one.
+- No speed-limit data: the routing API returns none, and inferring limits from road
+  class would be guesswork a rider might act on. `Speedometer` therefore shows
+  current speed only, and the limit indicator stays dormant.
+- No offline routing. Offline maps cover tiles only; planning a route needs a
+  connection.
+- Planning UI lives in one ~1600-line `MapScreen.kt` and is the obvious next
+  refactor.
+
+## Related docs
+
+`README.md` (overview), `FUTURE_FEATURES.md` (roadmap), `PHASE2_PLAN.md` (offline
+maps), `PHASE4_PLAN.md` (navigation), `MIGRATION_PLAN.md` (historical Java→Kotlin
+migration). Plan documents describe intent at the time of writing and may not match
+the shipped code — trust the source.

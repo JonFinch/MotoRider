@@ -24,6 +24,16 @@ class MotoRiderApplication : Application() {
                 Log.w(TAG, "Could not load osmdroid configuration (first launch?): ${e.message}")
             }
 
+            // osmdroid keeps these in its own SharedPreferences, so a value set once
+            // survives reinstalls and upgrades. Left on, it paints tile borders, tile
+            // coordinates and "Scaled" markers over the map - in release builds too,
+            // since the flags are read from prefs and not from the build type. Forcing
+            // them off after load() is what actually clears a stale `true`.
+            Configuration.getInstance().isDebugMode = false
+            Configuration.getInstance().isDebugTileProviders = false
+            Configuration.getInstance().isDebugMapView = false
+            Configuration.getInstance().isDebugMapTileDownloader = false
+
             // Raise osmdroid's tile-cache cap. The default is 600MB (trim to 500MB), and
             // when the cache exceeds it osmdroid *deletes* tiles to trim back down - which
             // silently purges pre-downloaded offline regions (observed: ~30% of an offline

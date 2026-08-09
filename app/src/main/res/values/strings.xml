@@ -102,12 +102,6 @@
     <string name="no_results_found">No results found</string>
     <string name="start_navigation_label">Start Navigation</string>
 
-    <!-- Vehicle types -->
-    <string name="motorcycle">Motorcycle</string>
-    <string name="truck">Truck</string>
-    <string name="car">Car</string>
-    <string name="bike">Bicycle</string>
-
     <!-- Avoidances -->
     <string name="highways">Highways</string>
     <string name="toll_roads">Toll Roads</string>
@@ -143,6 +137,7 @@
     <string name="waypoint_end">End</string>
 
     <!-- Offline Maps -->
+    <string name="offline_indicator">No connection — showing cached maps. Routing needs a connection.</string>
     <string name="offline_maps">Offline Maps</string>
     <string name="offline_maps_download_progress">Offline maps download progress</string>
     <string name="downloading_tiles">Downloading map tiles…</string>
@@ -166,5 +161,50 @@
     <string name="metered_connection_title">You\'re on mobile data</string>
     <string name="metered_connection_message" formatted="false">This download is about %.1f MB. Continue on mobile data?</string>
     <string name="download_anyway">Download anyway</string>
-    <string name="offline_indicator">No connection — showing cached maps. Routing needs a connection.</string>
+
+    <!-- Navigation UI strings -->
+    <string name="nav_turn_left">Turn left</string>
+    <string name="nav_turn_right">Turn right</string>
+    <string name="nav_turn_slight_left">Turn slight left</string>
+    <string name="nav_turn_slight_right">Turn slight right</string>
+    <string name="nav_u_turn">U-turn</string>
+    <string name="nav_continue">Continue</string>
+    <string name="nav_arrive">Arrive at destination</string>
+    <string name="nav_arrive_waypoint">Arrive at %s</string>
+    <string name="nav_off_route">You\'re off route</string>
+    <string name="nav_gps_lost">GPS signal lost</string>
+    <string name="nav_recalculating">Recalculating...</string>
+    <string name="nav_pause">Pause</string>
+    <string name="nav_resume">Resume</string>
+    <string name="nav_end_ride">End Ride</string>
+    <string name="nav_skip">Skip %s</string>
+    <string name="nav_arrive_at">Arrive at %s</string>
+    <string name="nav_arrive_at_time">Arrive %s</string>
+    <string name="nav_distance_and_time">%s · %s min</string>
+    <string name="nav_tts_enabled">TTS: ON</string>
+    <string name="nav_tts_disabled">TTS: OFF</string>
+    <string name="nav_skip_confirmation">Skip %s?</string>
+    <string name="nav_skip_confirmation_message">Route will be recalculated from current position.</string>
+    <string name="nav_install_tts">Install a TTS engine for audio guidance</string>
+    <string name="nav_allow">Allow</string>
+    <string name="nav_navigation_permission_rationale">MotoRider needs your location to follow the route and give you turn-by-turn directions.</string>
+    <string name="nav_permission_denied">Without location access MotoRider cannot navigate.</string>
+
+    <!-- Missing strings from MapScreen and NavigationScreen -->
+    <string name="back">Back</string>
+    <string name="end">End</string>
+    <string name="distance_remaining">Distance</string>
+    <string name="minutes">min</string>
+    <string name="duration_remaining">Duration</string>
+    <string name="speed">Speed</string>
+    <string name="skip_waypoint_fmt">Skip %s</string>
+    <string name="upcoming">Upcoming</string>
+    <string name="arrived">Arrived</string>
+    <string name="back_to_planning">Back to Planning</string>
+    <string name="nav_paused">Paused</string>
+    <string name="nav_arrived">Arrived</string>
+    <string name="nav_skip_fmt">Skip %s</string>
+    <string name="screen_navigation">Navigation</string>
+    <string name="pause">Pause</string>
+    <string name="resume">Resume</string>
 </resources>

@@ -1,14 +1,16 @@
 package com.motorider.ui.screen
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
@@ -46,6 +48,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -57,11 +60,19 @@ import kotlin.math.cos
 import kotlin.math.sin
 import com.motorider.maps.MotorcycleMapRenderer
 import com.motorider.models.Avoidance
+import com.motorider.models.ManeuverType
+import com.motorider.models.NavigationWarning
+import com.motorider.models.WarningSeverity
 import com.motorider.models.Route
 import com.motorider.models.RouteType
+import com.motorider.models.TurnInstruction
 import com.motorider.models.Waypoint
-import com.motorider.services.NavigationService
+import com.motorider.navigation.NavigationCamera
+import com.motorider.navigation.NavigationState
+import com.motorider.navigation.NavigationUIState
 import com.motorider.services.RouteService
+import com.motorider.ui.viewmodel.NavigationViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.motorider.ui.component.OsmMapView
 import com.motorider.ui.theme.*
 import com.motorider.utils.RouteUtils
@@ -72,7 +83,7 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.TilesOverlay
 import java.util.concurrent.atomic.AtomicInteger
 
-enum class Screen { Plan, QuickRide, Search, OfflineMaps }
+enum class Screen { Plan, QuickRide, Search, OfflineMaps, Navigation }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,6 +100,11 @@ fun MapScreen(
 
     val mapRenderer = remember { MotorcycleMapRenderer() }
     val routeService = remember { RouteService() }
+    // Owned by the ViewModelStore, not by this composition: a ViewModel built with
+    // `remember` is never cleared, so its TTS engine and service binding would leak.
+    val navigationViewModel: NavigationViewModel = viewModel(
+        factory = NavigationViewModel.Factory(context.applicationContext)
+    )
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var currentScreen by remember { mutableStateOf(Screen.Plan) }
@@ -137,6 +153,89 @@ fun MapScreen(
 
     LaunchedEffect(currentScreen) {
         quickRidePanelVisible = true
+    }
+
+    val navState by navigationViewModel.uiState.collectAsState()
+    val navError by navigationViewModel.errorMessage.collectAsState()
+
+    // Hold the display awake for the whole ride. The service's PARTIAL_WAKE_LOCK only
+    // keeps the CPU running so fixes keep arriving — it does nothing for the screen,
+    // and a rider glancing down at a blank phone mid-junction is the failure this
+    // avoids. Gloved hands cannot reliably wake a screen either.
+    //
+    // Scoped to NAVIGATING alone: pausing is a deliberate "I've stopped" signal, and
+    // arriving ends the need, so both should let the display sleep normally again.
+    val view = LocalView.current
+    DisposableEffect(navState.state) {
+        view.keepScreenOn = navState.state == NavigationState.NAVIGATING
+        onDispose { view.keepScreenOn = false }
+    }
+
+    val showPermissionRationale by navigationViewModel.showPermissionRationale.collectAsState()
+
+    LaunchedEffect(navError) {
+        navError?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            navigationViewModel.dismissError()
+        }
+    }
+
+    // Both permissions go in one request: from Android 12 the system ignores a
+    // request for ACCESS_FINE_LOCATION that does not also ask for COARSE, so a
+    // fine-only launcher never shows the rider a dialog at all.
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        navigationViewModel.dismissPermissionRationale()
+        // Approximate location is not good enough to follow a road, so only a
+        // precise grant counts as success.
+        if (results[Manifest.permission.ACCESS_FINE_LOCATION] != true) {
+            Toast.makeText(context, context.getString(R.string.nav_permission_denied), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Asking only when the rider actually taps "Start navigation" keeps the request
+    // attached to a reason they can see.
+    if (showPermissionRationale) {
+        AlertDialog(
+            onDismissRequest = { navigationViewModel.dismissPermissionRationale() },
+            title = { Text(stringResource(R.string.screen_navigation)) },
+            text = { Text(stringResource(R.string.nav_navigation_permission_rationale)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    locationPermissionLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
+                }) { Text(stringResource(R.string.nav_allow)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { navigationViewModel.dismissPermissionRationale() }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // One definition of "navigating" for the whole screen: anything that floats
+    // over the map has to defer to the navigation overlay, and reading the same
+    // flag keeps them from drifting apart.
+    val navigating = currentScreen == Screen.Navigation
+
+    val navigationCamera = remember { NavigationCamera() }
+    NavigationMapCamera(
+        mapView = mapView,
+        state = navState,
+        active = navigating,
+        camera = navigationCamera
+    )
+
+    // Leaving the navigation screen by any route must also stop the GPS service.
+    fun stopNavigating() {
+        navigationViewModel.endNavigation()
+        currentScreen = Screen.Plan
     }
 
     fun formatDistance(km: Double): String {
@@ -266,6 +365,7 @@ fun MapScreen(
                                 Screen.QuickRide -> stringResource(R.string.screen_quick_ride)
                                 Screen.Search -> stringResource(R.string.screen_search)
                                 Screen.OfflineMaps -> stringResource(R.string.offline_maps)
+                                Screen.Navigation -> stringResource(R.string.screen_navigation)
                             }
                         )
                     },
@@ -288,11 +388,21 @@ fun MapScreen(
                     onMapTapped = {
                         if (drawerState.isOpen) scope.launch { drawerState.close() }
                         else quickRidePanelVisible = !quickRidePanelVisible
+                    },
+                    onMapPinched = {
+                        navigationCamera.onUserZoomGesture(android.os.SystemClock.elapsedRealtime())
                     }
                 )
 
+                // These two sit outside the screen `when` so they can float over the
+                // map, which means nothing hides them on their own. The navigation
+                // overlay is transparent by design, so each has to opt out of it:
+                // the offline notice would land on top of the turn banner, and the
+                // route card would show through beneath the navigation controls.
+                // Connectivity still reaches the rider mid-ride - NavigationScreen
+                // shows it alongside the other navigation warnings.
                 AnimatedVisibility(
-                    visible = isOffline,
+                    visible = isOffline && !navigating,
                     enter = fadeIn(),
                     exit = fadeOut(),
                     modifier = Modifier.align(Alignment.TopCenter)
@@ -305,7 +415,7 @@ fun MapScreen(
                 }
 
                 AnimatedVisibility(
-                    visible = routeInfoVisible && currentRoutes.isNotEmpty(),
+                    visible = routeInfoVisible && currentRoutes.isNotEmpty() && !navigating,
                     enter = slideInVertically(tween(300)) { it },
                     exit = slideOutVertically(tween(300)) { it },
                     modifier = Modifier.align(Alignment.BottomCenter)
@@ -315,7 +425,14 @@ fun MapScreen(
                         selectedIndex = selectedRouteIndex,
                         onSelectRoute = { selectedRouteIndex = it },
                         onBackToPlanning = { routeInfoVisible = false },
-                        formatDistance = ::formatDistance
+                        formatDistance = ::formatDistance,
+                        onNavigate = {
+                            val selectedRoute = currentRoutes.getOrNull(selectedRouteIndex)
+                            if (selectedRoute != null) {
+                                navigationViewModel.startNavigation(selectedRoute)
+                                currentScreen = Screen.Navigation
+                            }
+                        }
                     )
                 }
 
@@ -369,17 +486,24 @@ fun MapScreen(
                             lastLegPrefs = legPrefs
                             lastAvoidances = avoidances
                             isGeocoding = true
-                            planRoute(
-                                context, routeService, mapRenderer, mapView,
-                                start, end, intermediates,
-                                legPrefs.firstOrNull() ?: RouteType.DIRECT,
-                                avoidances, currentLocation
-                            ) { routes ->
-                                currentRoutes = routes
-                                selectedRouteIndex = 0
-                                routeInfoVisible = true
-                                isGeocoding = false
-                            }
+                             planRoute(
+                                 context, routeService, mapRenderer, mapView,
+                                 start, end, intermediates,
+                                 legPrefs.firstOrNull() ?: RouteType.DIRECT,
+                                 avoidances, currentLocation,
+                                 onRoutesReady = { routes ->
+                                     currentRoutes = routes
+                                     selectedRouteIndex = 0
+                                     routeInfoVisible = true
+                                     isGeocoding = false
+                                 },
+                                 onNavigate = { route ->
+                                     navigationViewModel.startNavigation(route)
+                                     currentScreen = Screen.Navigation
+                                 },
+                                 currentRoutes = currentRoutes,
+                                 selectedRouteIndex = selectedRouteIndex
+                             )
                         }
                     )
                     }
@@ -401,15 +525,18 @@ fun MapScreen(
                         exit = fadeOut() + slideOutVertically(tween(300)) { it },
                         modifier = Modifier.align(Alignment.BottomCenter)
                     ) {
-                        QuickRidePanel(
-                            currentLocation = currentLocation,
-                            hasRoute = currentRoutes.isNotEmpty(),
-                            distanceUnitMiles = distanceUnitMiles,
-                            onNavigate = {
-                                val intent = Intent(context, NavigationService::class.java)
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
-                                else context.startService(intent)
-                                Toast.makeText(context, context.getString(R.string.navigation_started), Toast.LENGTH_SHORT).show()
+                         QuickRidePanel(
+                             currentLocation = currentLocation,
+                             hasRoute = currentRoutes.isNotEmpty(),
+                             distanceUnitMiles = distanceUnitMiles,
+                             onNavigate = {
+                                 val selectedRoute = currentRoutes.getOrNull(selectedRouteIndex)
+                                 if (selectedRoute != null) {
+                                    navigationViewModel.startNavigation(selectedRoute)
+                                    currentScreen = Screen.Navigation
+                                } else {
+                                    Toast.makeText(context, context.getString(R.string.waiting_for_gps), Toast.LENGTH_SHORT).show()
+                                }
                             },
                             onGenerateRoundTrip = { dist, dir ->
                             currentLocation?.let { loc ->
@@ -432,6 +559,33 @@ fun MapScreen(
                     Screen.Search -> SearchPanel()
                     Screen.OfflineMaps -> OfflineMapManagerScreen(
                         onNavigateBack = { currentScreen = Screen.Plan }
+                    )
+                    Screen.Navigation -> NavigationScreen(
+                        navigationState = navState.state,
+                        distanceRemaining = navState.distanceRemaining,
+                        timeRemaining = navState.timeRemaining,
+                        eta = navState.eta,
+                        currentSpeed = navState.currentSpeed,
+                        currentInstruction = navState.currentInstruction,
+                        navigationWarnings = navState.warnings,
+                        isOffRoute = navState.isOffRoute,
+                        isGpsLost = navState.isGpsLost,
+                        isRecalculating = navState.isRecalculating,
+                        isOffline = isOffline,
+                        isTtsEnabled = navState.isTtsEnabled,
+                        skipAvailableWaypointName = navState.skipAvailableWaypointName,
+                        onToggleTts = { navigationViewModel.setTTSEnabled(!navState.isTtsEnabled) },
+                        onBackToPlanning = { stopNavigating() },
+                        onPauseNavigation = {
+                            when (navState.state) {
+                                NavigationState.NAVIGATING -> navigationViewModel.pauseNavigation()
+                                NavigationState.PAUSED -> navigationViewModel.resumeNavigation()
+                                else -> {}
+                            }
+                        },
+                        onEndNavigation = { stopNavigating() },
+                        onSkipWaypoint = { navigationViewModel.skipWaypoint() },
+                        distanceUnitMiles = distanceUnitMiles
                     )
                 }
             }
@@ -1258,7 +1412,8 @@ private fun RouteInfoCard(
     selectedIndex: Int,
     onSelectRoute: (Int) -> Unit,
     onBackToPlanning: () -> Unit,
-    formatDistance: (Double) -> String
+    formatDistance: (Double) -> String,
+    onNavigate: () -> Unit
 ) {
     val context = LocalContext.current
     val route = routes.getOrNull(selectedIndex) ?: return
@@ -1315,9 +1470,7 @@ private fun RouteInfoCard(
             Spacer(Modifier.height(12.dp))
             Button(
                 onClick = {
-                    val intent = Intent(context, NavigationService::class.java)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
-                    else context.startService(intent)
+                    onNavigate()
                 },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -1498,7 +1651,10 @@ private fun planRoute(
     context: android.content.Context, routeService: RouteService, mapRenderer: MotorcycleMapRenderer, mapView: MapView?,
     startName: String, endName: String, intermediateNames: List<String>,
     overallPreference: RouteType, avoidances: Set<Avoidance>, currentLocation: GeoPoint?,
-    onRoutesReady: (List<Route>) -> Unit
+    onRoutesReady: (List<Route>) -> Unit,
+    onNavigate: (Route) -> Unit,
+    currentRoutes: List<Route>,
+    selectedRouteIndex: Int
 ) {
     val allNames = mutableListOf<String>()
     if (startName.isNotBlank()) allNames.add(startName)
@@ -1563,5 +1719,57 @@ private fun callback(
     }
     override fun onError(error: String) {
         android.os.Handler(android.os.Looper.getMainLooper()).post { onRoutesReady(emptyList()) }
+    }
+}
+
+// ─── Navigation map camera ──────────────────────────────────────────────────
+
+/**
+ * Drives the shared map while navigating: follows the rider, turns the map so the
+ * way ahead is always up, and picks the zoom from how fast they are going.
+ *
+ * It steers the *existing* MapView rather than creating a second one, so the route
+ * polyline, tile cache and offline regions already on it carry straight into
+ * navigation.
+ */
+@Composable
+private fun NavigationMapCamera(
+    mapView: MapView?,
+    state: NavigationUIState,
+    active: Boolean,
+    camera: NavigationCamera
+) {
+    val navigating = active && state.state == NavigationState.NAVIGATING
+
+    DisposableEffect(navigating) {
+        if (navigating) camera.reset()
+        onDispose {
+            // Leave a plain north-up map behind, or the planning screen inherits
+            // whatever heading the ride happened to finish on.
+            if (navigating) {
+                mapView?.mapOrientation = 0f
+                mapView?.invalidate()
+            }
+        }
+    }
+
+    LaunchedEffect(mapView, navigating, state.position, state.currentSpeed, state.bearing) {
+        val view = mapView ?: return@LaunchedEffect
+        if (!navigating) return@LaunchedEffect
+        val position = state.position ?: return@LaunchedEffect
+
+        val target = camera.update(
+            speedMps = state.currentSpeed,
+            rawBearing = state.bearing,
+            nowMs = android.os.SystemClock.elapsedRealtime()
+        )
+
+        // osmdroid measures orientation anticlockwise, so the heading is negated to
+        // bring the direction of travel to the top of the screen.
+        view.mapOrientation = -target.bearing
+
+        // A null zoom means the rider's pinch still owns it.
+        target.zoom?.let { view.controller.setZoom(it) }
+        view.controller.animateTo(position)
     }
 }

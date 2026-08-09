@@ -49,6 +49,9 @@ class Route(
     /** Server-supplied explanation for either of the above. */
     var serviceWarning: String? = null
 
+    /** Turn-by-turn navigation instructions derived from the route geometry. */
+    var turnInstructions: List<TurnInstruction>? = null
+
     data class CurvatureMetadata(
         val totalCurvature: Double = 0.0,
         val curvaturePerKm: Double = 0.0,

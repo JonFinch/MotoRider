@@ -1,17 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Routing API, Nominatim geocoding and map tile downloads. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Drives the "no connection" banner and the offline-download guard. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Position on the map and along the route while navigating. COARSE is not
+         optional alongside FINE: from Android 12 the system ignores a runtime
+         request for FINE that does not ask for COARSE in the same call.
+         Navigation runs under a location-typed foreground service, so
+         ACCESS_BACKGROUND_LOCATION is deliberately NOT declared. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    <!-- Tile cache lives in osmdroid's own app-private SQLite cache; no shared/external
-         storage write is ever needed, so no storage permission is required. -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+
+    <!-- Tile cache lives in osmdroid's app-private storage, so no storage
+         permission is needed on any API level. -->
+
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- NavigationService: GPS tracking for the duration of a ride. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Partial wake lock so GPS keeps delivering fixes with the screen off. A
+         foreground service alone does not stop the CPU sleeping, which on a bike
+         (screen off in a pocket or dimmed on the bars) would stall navigation. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- TileDownloadService: offline region downloads. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Both services show an ongoing notification. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />

@@ -1,5 +1,8 @@
 package com.motorider.utils
 
+import com.motorider.models.ManeuverType
+import com.motorider.models.RouteType
+import com.motorider.models.TurnInstruction
 import com.motorider.models.Waypoint
 import org.json.JSONArray
 import org.json.JSONObject
@@ -16,6 +19,9 @@ import com.motorider.config.ApiConfig
 
 object RouteUtils {
 
+    // Singleton executor to avoid leaking threads on every call.
+    private val executor: ExecutorService = Executors.newSingleThreadExecutor()
+
     data class LocationSuggestion(
         val displayName: String,
         val lat: Double,
@@ -28,7 +34,6 @@ object RouteUtils {
     }
 
     fun reverseGeocode(lat: Double, lon: Double, callback: (String?) -> Unit) {
-        val executor: ExecutorService = Executors.newSingleThreadExecutor()
         executor.execute {
             try {
                 val urlObj = URL("${ApiConfig.NOMINATIM_BASE_URL}/reverse?lat=$lat&lon=$lon&format=json&zoom=18")
@@ -56,7 +61,6 @@ object RouteUtils {
                     callback(null)
                 }
             }
-            executor.shutdown()
         }
     }
 
@@ -66,7 +70,6 @@ object RouteUtils {
         centerLon: Double? = null,
         callback: (List<LocationSuggestion>) -> Unit
     ) {
-        val executor: ExecutorService = Executors.newSingleThreadExecutor()
         executor.execute {
             try {
                 val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
@@ -114,12 +117,10 @@ object RouteUtils {
                     callback(emptyList())
                 }
             }
-            executor.shutdown()
         }
     }
 
     fun geocodeLocation(locationName: String, callback: GeocodingCallback?) {
-        val executor: ExecutorService = Executors.newSingleThreadExecutor()
         val mainHandler = try {
             android.os.Handler(android.os.Looper.getMainLooper())
         } catch (e: Exception) {
@@ -158,7 +159,6 @@ object RouteUtils {
                 if (mainHandler != null) mainHandler.post { callback?.onError(errorMsg) }
                 else callback?.onError(errorMsg)
             }
-            executor.shutdown()
         }
     }
 
@@ -259,5 +259,166 @@ object RouteUtils {
         } catch (e: Exception) {
             emptyList()
         }
+    }
+
+    /**
+     * Generate turn-by-turn navigation instructions from route geometry.
+     *
+     * The routing API returns no road names, so manoeuvres are derived purely from
+     * how the heading changes between consecutive geometry vertices.
+     *
+     * Route geometry is dense — a long route has thousands of vertices, nearly all
+     * of them gentle curve-following. Emitting one instruction per vertex would bury
+     * the real junctions, so only heading changes above [MIN_TURN_ANGLE_DEGREES] are
+     * kept, and turns closer together than [MIN_MANEUVER_SPACING_METERS] are merged
+     * into the sharper of the two (a single junction is usually several vertices).
+     *
+     * @param durationSeconds total route duration in seconds, used to apportion the
+     *   remaining time to each manoeuvre. Pass 0 if unknown.
+     */
+    fun generateTurnInstructions(
+        geometry: List<GeoPoint>,
+        waypoints: List<Waypoint>,
+        durationSeconds: Double
+    ): List<TurnInstruction> {
+        if (geometry.size < 2) return emptyList()
+
+        val cumulativeDistances = calculateCumulativeDistances(geometry)
+        val totalDistance = cumulativeDistances.last()
+
+        fun timeToEndFrom(distAlong: Double): Double =
+            if (totalDistance > 0 && durationSeconds > 0) {
+                ((totalDistance - distAlong) / totalDistance) * durationSeconds
+            } else 0.0
+
+        fun instructionAt(
+            index: Int,
+            type: ManeuverType,
+            text: String,
+            bearing: Double
+        ): TurnInstruction {
+            val distAlong = distanceAlongRouteAt(index, cumulativeDistances)
+            return TurnInstruction(
+                maneuverType = type,
+                instruction = text,
+                distanceToManeuver = 0.0,
+                distanceAlongRoute = distAlong,
+                distanceRemaining = (totalDistance - distAlong).coerceAtLeast(0.0),
+                timeRemaining = timeToEndFrom(distAlong),
+                bearing = bearing,
+                segmentIndex = index
+            )
+        }
+
+        val turns = mutableListOf<TurnInstruction>()
+
+        for (i in 1 until geometry.size - 1) {
+            val bearingIn = calculateBearing(geometry[i - 1], geometry[i])
+            val bearingOut = calculateBearing(geometry[i], geometry[i + 1])
+
+            // Signed: positive is clockwise, i.e. a right turn.
+            val delta = signedBearingDelta(bearingIn, bearingOut)
+            val magnitude = Math.abs(delta)
+            if (magnitude < MIN_TURN_ANGLE_DEGREES) continue
+
+            val right = delta > 0
+            val (type, text) = when {
+                magnitude < 45.0 ->
+                    if (right) ManeuverType.TURN_SLIGHT_RIGHT to "Slight right"
+                    else ManeuverType.TURN_SLIGHT_LEFT to "Slight left"
+                magnitude < 135.0 ->
+                    if (right) ManeuverType.TURN_RIGHT to "Turn right"
+                    else ManeuverType.TURN_LEFT to "Turn left"
+                magnitude < 160.0 ->
+                    if (right) ManeuverType.TURN_RIGHT to "Sharp right"
+                    else ManeuverType.TURN_LEFT to "Sharp left"
+                else -> ManeuverType.UTURN to "U-turn"
+            }
+
+            val candidate = instructionAt(i, type, text, bearingOut)
+
+            // Merge with the previous manoeuvre when they are close enough to be the
+            // same junction, keeping whichever turn is sharper.
+            val previous = turns.lastOrNull()
+            if (previous != null &&
+                candidate.distanceAlongRoute - previous.distanceAlongRoute < MIN_MANEUVER_SPACING_METERS
+            ) {
+                val previousMagnitude = maneuverMagnitude(previous.maneuverType)
+                if (maneuverMagnitude(type) > previousMagnitude) {
+                    turns[turns.lastIndex] = candidate
+                }
+                continue
+            }
+
+            turns.add(candidate)
+        }
+
+        val instructions = mutableListOf<TurnInstruction>()
+
+        instructions.add(
+            instructionAt(0, ManeuverType.DEPART, "Depart", calculateBearing(geometry[0], geometry[1]))
+        )
+        instructions.addAll(turns)
+
+        // Intermediate waypoints: announce arrival at each one.
+        if (waypoints.size > 2) {
+            for (wpIdx in 1 until waypoints.size - 1) {
+                val wp = waypoints[wpIdx]
+                var closestIndex = 0
+                var closestDist = Double.MAX_VALUE
+                for (i in geometry.indices) {
+                    val d = wp.location.distanceToMeters(geometry[i])
+                    if (d < closestDist) {
+                        closestDist = d
+                        closestIndex = i
+                    }
+                }
+
+                if (closestIndex <= 0 || closestIndex >= geometry.size - 1) continue
+
+                val waypointDistAlong = distanceAlongRouteAt(closestIndex, cumulativeDistances)
+                // Drop any turn that coincides with the waypoint — arriving somewhere
+                // is the more useful thing to say.
+                instructions.removeAll {
+                    it.maneuverType != ManeuverType.DEPART &&
+                        Math.abs(it.distanceAlongRoute - waypointDistAlong) < MIN_MANEUVER_SPACING_METERS
+                }
+                instructions.add(
+                    instructionAt(
+                        closestIndex,
+                        ManeuverType.WAYPOINT_ARRIVED,
+                        "Arrive at ${wp.name}",
+                        calculateBearing(geometry[closestIndex], geometry[closestIndex + 1])
+                    )
+                )
+            }
+        }
+
+        val lastIndex = geometry.size - 1
+        instructions.add(
+            instructionAt(
+                lastIndex,
+                ManeuverType.ARRIVE,
+                "Arrive at ${waypoints.lastOrNull()?.name ?: "destination"}",
+                calculateBearing(geometry[lastIndex - 1], geometry[lastIndex])
+            )
+        )
+
+        instructions.sortBy { it.distanceAlongRoute }
+        return instructions
+    }
+
+    /** Heading changes gentler than this are curve-following, not a manoeuvre. */
+    private const val MIN_TURN_ANGLE_DEGREES = 20.0
+
+    /** Manoeuvres closer together than this are treated as one junction. */
+    private const val MIN_MANEUVER_SPACING_METERS = 25.0
+
+    /** Rough ordering of how significant a manoeuvre is, for merge decisions. */
+    private fun maneuverMagnitude(type: ManeuverType): Int = when (type) {
+        ManeuverType.UTURN -> 3
+        ManeuverType.TURN_LEFT, ManeuverType.TURN_RIGHT -> 2
+        ManeuverType.TURN_SLIGHT_LEFT, ManeuverType.TURN_SLIGHT_RIGHT -> 1
+        else -> 0
     }
 }

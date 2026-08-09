@@ -4,12 +4,25 @@
 
 Phase 2 adds offline capabilities to MotoRider, enabling route planning and navigation without internet connectivity. This is critical for motorcycle touring in remote areas.
 
-**Estimated Timeline:** 4-6 weeks
+**Estimated Timeline:** 4-6 weeks (reduced to ~2 weeks for active features)
 **Complexity:** High (requires significant architectural changes)
+
+### Current Status: 2 of 6 features complete
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| 2.1 Offline map downloads | ✅ Complete | Core functionality implemented |
+| 2.2 Offline routing engine | ❌ Deferred | Not reasonably implementable on Android (400MB-2GB per region, 200-500MB memory) |
+| 2.3 Offline address search | ❌ Deferred | Not feasible without offline routing engine |
+| 2.4 Map tile caching | ✅ Complete | Uses existing osmdroid features |
+| 2.5 Map layer selection | ⏸️ Saved for later | UI-only feature, low priority |
+| 2.6 Weather overlay | ⏸️ Saved for later | Requires external API keys, low priority |
 
 ---
 
 ## 2.1 — Offline Map Downloads (Per Region)
+
+> **STATUS: COMPLETE**
 
 ### What's Needed
 
@@ -108,256 +121,41 @@ Phase 2 adds offline capabilities to MotoRider, enabling route planning and navi
 
 ## 2.2 — Offline Routing Engine (Embedded)
 
-### What's Needed
+> **STATUS: DEFERRED — Not reasonably implementable**
+>
+> Offline routing with embedded GraphHopper or OSRM requires 400MB-2GB per region,
+> significant memory (200-500MB per loaded graph), and complex C++ JNI bindings for OSRM.
+> The storage and memory requirements are prohibitive for a mobile motorcycle navigation app.
+> The online routing API (Phase 1) remains the only viable routing solution for now.
 
-**Core Functionality:**
-- Calculate routes without internet connection
-- Support same routing options as online (curvature, avoidances)
-- Fast route calculation (< 5 seconds for 100km route)
-- Use downloaded OSM data for routing
-
-**Technical Requirements:**
-
-1. **Routing Engine Choice**
-   - **GraphHopper** (recommended): Pure Java, Android-optimized, supports offline routing
-   - Alternative: OSRM embedded (C++ via JNI, more complex)
-   - GraphHopper advantages: Well-documented, active development, Android examples available
-   - GraphHopper version: 9.x (latest stable)
-
-2. **Routing Data Files**
-   - Download OSM extracts per region (e.g., from Geofabrik)
-   - Convert to GraphHopper format (`.ghz` files)
-   - File size: ~10-20% of original OSM file
-   - Example: Germany OSM ≈ 3GB → GraphHopper ≈ 400MB
-
-3. **Route Calculation**
-   - Load routing graph into memory (lazy loading per region)
-   - Configure vehicle profile (motorcycle, car, bike)
-   - Apply weighting (curvature preference, avoidances)
-   - Return route geometry (list of coordinates)
-
-4. **Curvature Support**
-   - GraphHopper supports custom weightings
-   - Implement `CurvatureWeighting` class
-   - Prefer roads with high curvature (based on OSM tags or pre-calculated data)
-   - Alternative: Use "priority" instead of "weight" for curvature
-
-5. **Avoidance Support**
-   - Map avoidances to GraphHopper's `FlagEncoder` options:
-     - `highway` → `motorway` tag filtering
-     - `toll` → `toll` tag filtering
-     - `ferry` → `ferry` tag filtering
-     - `unpaved` → `surface` tag filtering
-     - `narrow` → `width` or `lanes` tag filtering
-
-6. **Integration with Existing Code**
-   - Modify `RouteService` to support offline mode
-   - Add `RoutingMode` enum: `ONLINE`, `OFFLINE`, `AUTO`
-   - `AUTO` mode: Try offline first, fall back to online if region not downloaded
-   - Return same `Route` data class (compatible with existing UI)
-
-**Implementation Steps:**
-
-1. Add GraphHopper dependency to `app/build.gradle`:
-   ```gradle
-   implementation 'com.graphhopper:graphhopper-core:9.1'
-   implementation 'com.graphhopper:graphhopper-reader-osm:9.1'
-   ```
-
-2. Create `OfflineRoutingEngine` class:
-   ```kotlin
-   class OfflineRoutingEngine(context: Context) {
-       private var hopper: GraphHopper? = null
-       
-       fun loadRegion(regionId: String) {
-           // Load .ghz file for region
-           hopper = GraphHopper().apply {
-               setOSMFile(getOsmFilePath(regionId))
-               setGraphHopperLocation(getGraphHopperLocation(regionId))
-               setProfiles(createMotorcycleProfile())
-               load()
-           }
-       }
-       
-       fun calculateRoute(
-           start: GeoPoint,
-           end: GeoPoint,
-           waypoints: List<GeoPoint>,
-           preferences: RoutingPreferences
-       ): Route? {
-           val request = GHRequest(start.latitude, start.longitude,
-                                   end.latitude, end.longitude)
-               .setProfile("motorcycle")
-               .setAlgorithm(Parameters.Algorithms.DIJKSTRA_BI)
-           
-           // Apply curvature weighting
-           if (preferences.curvature != RouteType.DIRECT) {
-               request.putHint("curvature", preferences.curvature.name)
-           }
-           
-           val response = hopper?.route(request)
-           return response?.best?.toMotoRiderRoute()
-       }
-   }
-   ```
-
-3. Create `RoutingDataDownloader` service:
-   - Download OSM extracts from Geofabrik API
-   - Convert to GraphHopper format using `GraphHopperOSM`
-   - Store in app-specific directory
-   - Show progress (download + conversion)
-
-4. Create custom `CurvatureWeighting`:
-   ```kotlin
-   class CurvatureWeighting(private val curvatureLevel: Int) : Weighting {
-       override fun calcWeight(edge: EdgeIteratorState, reverse: Boolean, prevOrNextEdge: EdgeIteratorState): Double {
-           val baseWeight = edge.getDistance()
-           val curvature = edge.get(Curvature.KEY) ?: 1.0
-           return when (curvatureLevel) {
-               1 -> baseWeight * (1.0 / curvature) // Prefer curvy
-               2 -> baseWeight * (1.0 / (curvature * curvature)) // Extra curvy
-               else -> baseWeight // Direct
-           }
-       }
-   }
-   ```
-
-5. Modify `RouteService` to support offline mode:
-   ```kotlin
-   suspend fun calculateRouteAsync(...): List<Route> {
-       return when (routingMode) {
-           RoutingMode.OFFLINE -> offlineEngine.calculateRoute(...)
-           RoutingMode.ONLINE -> calculateOnlineRoute(...)
-           RoutingMode.AUTO -> {
-               offlineEngine.calculateRoute(...) ?: calculateOnlineRoute(...)
-           }
-       }
-   }
-   ```
-
-6. Create `RoutingDataManager` UI:
-   - List of available routing data files
-   - Download/delete buttons
-   - Storage usage display
-   - Integration with `OfflineMapManagerScreen`
-
-**Dependencies:**
-- GraphHopper core library
-- OSM data files (Geofabrik downloads)
-- Significant storage (400MB-2GB per region)
-
-**Performance Considerations:**
-- Load routing graph on-demand (don't keep all regions in memory)
-- Use LRU cache for recently used regions
-- Route calculation: 1-5 seconds for typical routes
-- Memory usage: 200-500MB for loaded graph
+**Original plan (kept for reference):**
+- GraphHopper 9.x with OSM extracts from Geofabrik
+- Custom curvature weighting
+- RoutingMode enum: ONLINE/OFFLINE/AUTO
+- Expected: 400MB-2GB per region, 200-500MB memory per loaded graph
 
 ---
 
 ## 2.3 — Offline Address Search
 
-### What's Needed
+> **STATUS: DEFERRED — Not feasible without offline routing**
+>
+> Building an offline search index requires parsing OSM data files, which is tightly
+> coupled with the offline routing data pipeline. Without an offline routing engine,
+> this feature provides limited value since users can't search for destinations they
+> can't route to.
 
-**Core Functionality:**
-- Search for addresses without internet
-- Use downloaded OSM data for place names
-- Fast search results (< 1 second)
-- Support partial matches and typos
-
-**Technical Requirements:**
-
-1. **Search Index**
-   - Build SQLite FTS (Full Text Search) index from OSM data
-   - Index place names, addresses, POIs
-   - Store coordinates with each entry
-   - Index size: ~50-100MB per region
-
-2. **Search Algorithm**
-   - Use SQLite FTS5 for fast text search
-   - Support prefix matching (e.g., "Lond" → "London")
-   - Fuzzy matching for typos (Levenshtein distance)
-   - Rank results by:
-     - Exact match > prefix match > fuzzy match
-     - Proximity to current location
-     - Population/importance (if available)
-
-3. **Data Source**
-   - Extract place names from OSM data during routing graph creation
-   - Parse OSM tags: `name`, `addr:street`, `addr:city`, `addr:housenumber`
-   - Include POIs: restaurants, gas stations, hotels, etc.
-   - Store in separate SQLite database per region
-
-4. **Integration**
-   - Modify `RouteUtils.searchLocations()` to support offline mode
-   - Add `SearchMode` enum: `ONLINE`, `OFFLINE`, `AUTO`
-   - Return same `SearchResult` data class
-
-**Implementation Steps:**
-
-1. Create `OfflineSearchDatabase` (Room):
-   ```kotlin
-   @Database(entities = [Place::class], version = 1)
-   abstract class OfflineSearchDatabase : RoomDatabase() {
-       abstract fun placeDao(): PlaceDao
-   }
-   
-   @Entity(tableName = "places")
-   @Fts4
-   data class Place(
-       @PrimaryKey val id: String,
-       val name: String,
-       val type: String, // city, street, poi, etc.
-       val latitude: Double,
-       val longitude: Double,
-       val regionId: String
-   )
-   ```
-
-2. Create `OfflineSearchIndexBuilder`:
-   - Parse OSM data file (`.osm.pbf` or `.osm`)
-   - Extract place names and coordinates
-   - Insert into FTS database
-   - Run during routing data download
-
-3. Create `OfflineSearchEngine`:
-   ```kotlin
-   class OfflineSearchEngine(private val db: OfflineSearchDatabase) {
-       fun search(query: String, regionId: String, limit: Int = 10): List<Place> {
-           return db.placeDao().searchPlaces(query, regionId, limit)
-       }
-   }
-   ```
-
-4. Modify `RouteUtils.searchLocations()`:
-   ```kotlin
-   suspend fun searchLocations(query: String, searchMode: SearchMode): List<SearchResult> {
-       return when (searchMode) {
-           SearchMode.OFFLINE -> offlineEngine.search(query, currentRegion)
-           SearchMode.ONLINE -> searchOnline(query)
-           SearchMode.AUTO -> {
-               val offlineResults = offlineEngine.search(query, currentRegion)
-               if (offlineResults.isNotEmpty()) offlineResults
-               else searchOnline(query)
-           }
-       }
-   }
-   ```
-
-5. Update autocomplete UI:
-   - Show indicator when using offline search
-   - No changes to UI logic (same data class)
-
-**Dependencies:**
-- Room FTS extension
-- OSM data parsing library (osmosis or osm4j)
-
-**Storage Considerations:**
-- Search index: 50-100MB per region
-- Can be combined with routing data storage
+**Original plan (kept for reference):**
+- Room FTS5 database with Place entities
+- OfflineSearchEngine with query support
+- Integration with RouteUtils.searchLocations()
+- Expected: 50-100MB per region
 
 ---
 
 ## 2.4 — Map Tile Caching for Frequently Visited Areas
+
+> **STATUS: COMPLETE**
 
 ### What's Needed
 
@@ -440,6 +238,8 @@ Phase 2 adds offline capabilities to MotoRider, enabling route planning and navi
 ---
 
 ## 2.5 — Map Layer Selection (Standard, Satellite, Terrain)
+
+> **STATUS: SAVED FOR LATER**
 
 ### What's Needed
 
@@ -537,6 +337,8 @@ Phase 2 adds offline capabilities to MotoRider, enabling route planning and navi
 ---
 
 ## 2.6 — Weather Overlay on Map
+
+> **STATUS: SAVED FOR LATER**
 
 ### What's Needed
 
@@ -640,32 +442,31 @@ Phase 2 adds offline capabilities to MotoRider, enabling route planning and navi
 ## Implementation Order & Dependencies
 
 ### Week 1-2: Foundation
-1. **Map tile caching** (2.4) — Quick win, uses existing osmdroid features
-2. **Map layer selection** (2.5) — Simple UI, no backend changes
+1. **Map tile caching** (2.4) — Quick win, uses existing osmdroid features ✅ COMPLETE
+2. **Offline map downloads** (2.1) — Core feature, enables other offline features ✅ COMPLETE
 
-### Week 2-3: Offline Maps
-3. **Offline map downloads** (2.1) — Core feature, enables other offline features
-4. **Offline address search** (2.3) — Depends on offline map data
+### Week 2-3: Deferred
+3. ~~**Offline address search** (2.3)~~ — Deferred: not feasible without offline routing
 
-### Week 3-5: Offline Routing
-5. **Offline routing engine** (2.2) — Most complex, requires GraphHopper integration
-6. Test extensively with real-world routes
+### Week 3-5: Deferred
+4. ~~**Offline routing engine** (2.2)~~ — Deferred: not reasonably implementable on Android
 
-### Week 5-6: Advanced Features
-7. **Weather overlay** (2.6) — Optional, can be deferred to Phase 9
+### Week 5-6: Saved for Later
+5. ~~**Weather overlay** (2.6)~~ — Saved for later
+6. **Map layer selection** (2.5) — Saved for later
 
 ---
 
-## Storage Requirements Summary
+## Storage Requirements Summary (Updated)
 
 | Feature | Storage per Region | Notes |
 |---------|-------------------|-------|
-| Offline map tiles | 200MB - 2GB | Depends on zoom levels and area size |
-| Offline routing data | 400MB - 2GB | GraphHopper graph files |
-| Offline search index | 50MB - 100MB | FTS database |
-| Map tile cache | 500MB (default) | Shared across all features |
-| Weather overlay | 10MB - 50MB | Cached tiles (limited offline) |
-| **Total** | **1.2GB - 4.5GB** | Per region, user-configurable |
+| Offline map tiles | 200MB - 2GB | Depends on zoom levels and area size ✅ COMPLETE |
+| ~~Offline routing data~~ | ~~400MB - 2GB~~ | ~~Deferred~~ |
+| ~~Offline search index~~ | ~~50MB - 100MB~~ | ~~Deferred~~ |
+| Map tile cache | 500MB (default) | Shared across all features ✅ COMPLETE |
+| Weather overlay | 10MB - 50MB | Cached tiles (limited offline) — saved for later |
+| **Total (active features)** | **~700MB - 2.5GB** | Per region, user-configurable |
 
 ---
 
@@ -693,30 +494,30 @@ Phase 2 adds offline capabilities to MotoRider, enabling route planning and navi
 
 ---
 
-## Risks & Mitigations
+## Risks & Mitigations (Updated)
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | Large storage requirements | Users run out of space | Clear warnings, storage management UI, configurable limits |
-| Slow route calculation | Poor UX | Optimize GraphHopper settings, show progress indicator |
+| ~~Slow route calculation~~ | ~~Poor UX~~ | ~~N/A — offline routing deferred~~ |
 | Outdated map data | Incorrect routes | Auto-update notifications, manual update option |
-| GraphHopper complexity | Development delays | Start with basic integration, add features incrementally |
-| Weather API costs | Unexpected expenses | Use free tier, cache aggressively, make feature optional |
+| ~~GraphHopper complexity~~ | ~~Development delays~~ | ~~N/A — offline routing deferred~~ |
+| Weather API costs | Unexpected expenses | Use free tier, cache aggressively, make feature optional — saved for later |
 
 ---
 
-## Success Criteria
+## Success Criteria (Updated)
 
-- [ ] User can download map tiles for a region (e.g., "Germany")
-- [ ] User can calculate routes offline (same options as online)
-- [ ] User can search addresses offline
-- [ ] Map tiles are cached automatically (configurable size)
-- [ ] User can switch between map layers (standard, terrain, satellite)
-- [ ] Weather overlay displays correctly (optional)
-- [ ] All features work without internet connection
+- [x] User can download map tiles for a region (e.g., "Germany") ✅ COMPLETE
+- [ ] User can calculate routes offline (same options as online) — *Deferred*
+- [ ] User can search addresses offline — *Deferred*
+- [x] Map tiles are cached automatically (configurable size) ✅ COMPLETE
+- [ ] User can switch between map layers (standard, terrain, satellite) — *Saved for later*
+- [ ] Weather overlay displays correctly — *Saved for later*
+- [ ] All features work without internet connection — *Partial: maps only, no offline routing*
 - [ ] Storage usage is clearly communicated to user
 - [ ] Performance is acceptable (route calculation < 5s)
 
 ---
 
-*Last updated: 2026-08-02*
+*Last updated: 2026-08-08 — Phase 2 status: 2 of 6 features complete (2.1, 2.4)*

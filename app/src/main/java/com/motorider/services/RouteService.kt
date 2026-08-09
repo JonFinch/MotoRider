@@ -6,6 +6,7 @@ import com.motorider.models.Route
 import com.motorider.models.RouteType
 import com.motorider.models.Waypoint
 import com.motorider.utils.RouteUtils
+import com.motorider.utils.distanceToMeters
 import org.json.JSONArray
 import org.json.JSONObject
 import org.osmdroid.util.GeoPoint
@@ -20,6 +21,11 @@ import java.util.concurrent.Executors
 
 class RouteService {
 
+    companion object {
+        // Singleton executor to avoid leaking threads on every call.
+        private val executor: ExecutorService = Executors.newSingleThreadExecutor()
+    }
+
     interface RouteCalculationCallback {
         fun onRouteCalculated(routes: List<Route>)
         fun onError(error: String)
@@ -33,7 +39,6 @@ class RouteService {
         avoidances: Set<Avoidance>?,
         callback: RouteCalculationCallback?
     ) {
-        val executor: ExecutorService = Executors.newSingleThreadExecutor()
         executor.execute {
             try {
                 val routes = fetchRoutesFromApi(start, end, waypoints, routePreference, avoidances)
@@ -41,9 +46,20 @@ class RouteService {
             } catch (e: Exception) {
                 callback?.onError(e.message ?: "Unknown error")
             }
-            executor.shutdown()
         }
     }
+
+    /**
+     * Blocking route calculation, for callers that already have their own worker
+     * (a coroutine on [Dispatchers.IO], say). Never call this from the main thread.
+     */
+    fun calculateRoute(
+        start: Waypoint,
+        end: Waypoint,
+        waypoints: List<Waypoint>?,
+        routePreference: RouteType,
+        avoidances: Set<Avoidance>?
+    ): List<Route> = fetchRoutesFromApi(start, end, waypoints, routePreference, avoidances)
 
     private fun fetchRoutesFromApi(
         start: Waypoint,
@@ -109,6 +125,16 @@ class RouteService {
                         val apiRoutes = RouteUtils.parseRouteApiResponse(
                             responseText, fullWaypoints, routePreference
                         )
+                        // Generate turn-by-turn instructions for each route.
+                        // Route.duration is in minutes; instruction times are seconds.
+                        for (route in apiRoutes) {
+                            val geometry = route.routeGeometry
+                            if (geometry != null && geometry.size >= 2) {
+                                route.turnInstructions = RouteUtils.generateTurnInstructions(
+                                    geometry, fullWaypoints, route.duration * 60.0
+                                )
+                            }
+                        }
                         if (apiRoutes.isNotEmpty()) return apiRoutes
                     } else {
                         val errorMsg = root.optString("message",
@@ -160,40 +186,31 @@ class RouteService {
         if (waypoints.isNullOrEmpty()) return
 
         var totalDistance = 0.0
-        var totalDuration = 0.0
         val geometry = ArrayList<GeoPoint>()
 
         for (i in 0 until waypoints.size) {
             val wp = waypoints[i]
-            wp.location?.let { geometry.add(it) }
+            geometry.add(wp.location)
             if (i > 0) {
-                val prev = waypoints[i - 1].location
-                val current = wp.location
-                if (prev != null && current != null) {
-                    val lat1 = Math.toRadians(prev.latitude)
-                    val lat2 = Math.toRadians(current.latitude)
-                    val dLat = Math.toRadians(current.latitude - prev.latitude)
-                    val dLon = Math.toRadians(current.longitude - prev.longitude)
-
-                    val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                        Math.cos(lat1) * Math.cos(lat2) *
-                        Math.sin(dLon / 2) * Math.sin(dLon / 2)
-                    val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-
-                    val segmentDistance = 6371000.0 * c
-                    totalDistance += segmentDistance
-
-                    val speed = 60.0 * routePreference.getSpeedFactor()
-                    totalDuration += segmentDistance / speed
-                }
+                totalDistance += waypoints[i - 1].location.distanceToMeters(wp.location)
             }
         }
 
+        // A nominal 60 km/h, scaled by how much the chosen curviness slows a rider down.
+        val averageSpeedKmh = 60.0 * routePreference.getSpeedFactor()
+        val durationMinutes = if (averageSpeedKmh > 0) {
+            (totalDistance / 1000.0) / averageSpeedKmh * 60.0
+        } else 0.0
+
         route.distance = totalDistance / 1000.0
-        route.duration = totalDuration * 60.0
+        route.duration = durationMinutes
         route.curvatureScore = 0.0
         route.elevationGain = 0.0
         route.routeScore = 1.0
         route.routeGeometry = geometry
+        // Generate turn instructions for the fallback route too
+        route.turnInstructions = RouteUtils.generateTurnInstructions(
+            geometry, route.waypoints, durationMinutes * 60.0
+        )
     }
 }
