@@ -1,5 +1,23 @@
 # Phase 4 — Navigation: Implementation Plan (Revised)
 
+> **STATUS: SHIPPED.** This is the plan as written before the work, kept for its
+> design reasoning. It is not a description of the code — where the two disagree,
+> the code is right. `AGENTS.md` describes what actually shipped.
+>
+> Known differences between this plan and the shipped app:
+>
+> | Planned | Shipped |
+> |---|---|
+> | `navigation/TurnInstruction.kt`, `navigation/NavigationWarning.kt` | live in `models/` |
+> | `navigation/NavigationViewModel.kt` | lives in `ui/viewmodel/` |
+> | `component/NextManeuverCard.kt` | never built — `NavigationUIState.upcomingInstructions` is computed but nothing consumes it |
+> | `component/NavigationMapView.kt` | never built — navigation drives the single shared `OsmMapView` via `NavigationMapCamera` |
+> | Full-screen `NavigationScreen` | a **transparent overlay** over the map, controls top and bottom |
+> | Speed-limit display and warnings | not implemented; the routing API returns no limit data |
+>
+> The "Current State" section immediately below describes the code *before* Phase 4
+> and is retained only as a record of the starting point.
+
 ## Overview
 
 Build full turn-by-turn navigation for MotoRider, enabling riders to follow planned routes with live GPS tracking, audio guidance, and safety features. The navigation system uses the existing online routing API (Phase 1) and offline map tiles (Phase 2.1, 2.4). No offline routing engine is required — navigation simply follows the route geometry already returned by the routing API.
@@ -12,7 +30,7 @@ Build full turn-by-turn navigation for MotoRider, enabling riders to follow plan
 
 ## Architecture
 
-### Current State
+### Current State *(as of writing, before Phase 4 — historical)*
 
 - `NavigationService.kt`: Stub foreground service — shows a notification, no routing logic
 - `MapScreen.kt` (1567 lines): "Start Navigation" button calls the stub service
@@ -584,22 +602,27 @@ NavigationViewModel.startNavigation(route)
 
 ## Success Criteria
 
-- [ ] User can start navigation from any planned route
-- [ ] GPS tracking follows the route in real-time (on real device)
-- [ ] Turn-by-turn visual instructions display correctly (geometry-derived)
-- [ ] Audio/TTS guidance speaks instructions at appropriate times (with silent fallback)
-- [ ] Speedometer displays current speed (limit indicator only when data available)
-- [ ] Speed limit warnings trigger when exceeding limit (if limit data available)
-- [ ] ETA updates accurately during navigation (proportional from route geometry)
-- [ ] Navigation notification persists when app is backgrounded (dynamic content, lockscreen actions)
-- [ ] Navigation continues with screen off (reduced GPS rate, WakeLock)
-- [ ] Off-route detection triggers recalculation (EMA-filtered, 50m threshold)
-- [ ] User can pause/resume/end navigation at any time
-- [ ] User can skip intermediate waypoints
-- [ ] GPS loss handled gracefully (60s warning, pause, resume on fix)
-- [ ] Battery drain ≤ 20% per hour of active navigation
-- [ ] All unit tests pass (> 35 tests)
-- [ ] Manual testing passes on Android 7–15 (minSdk 24, targetSdk 36)
+- [x] User can start navigation from any planned route
+- [x] GPS tracking follows the route in real-time (on real device)
+- [x] Turn-by-turn visual instructions display correctly (geometry-derived)
+- [x] Audio/TTS guidance speaks instructions at appropriate times (with silent fallback)
+- [x] Speedometer displays current speed
+- [ ] Speed limit warnings trigger when exceeding limit — **dropped**: the routing
+      API returns no speed-limit data, and guessing from road class is not something
+      to put in front of a rider
+- [x] ETA updates accurately during navigation (proportional from route geometry)
+- [x] Navigation notification persists when app is backgrounded (dynamic content, lockscreen Pause/End actions)
+- [x] Navigation continues with screen off (reduced GPS rate, WakeLock)
+- [x] Off-route detection triggers recalculation (EMA-filtered)
+- [x] User can pause/resume/end navigation at any time
+- [x] User can skip intermediate waypoints
+- [x] GPS loss handled gracefully (warning, pause, resume on fix)
+- [ ] Battery drain ≤ 20% per hour of active navigation — **not measured.** One GPS
+      listener plus one low-rate network listener are held for a ride; see the
+      "Known gaps" note in `AGENTS.md`
+- [x] All unit tests pass — 134 JVM tests, no device required
+- [ ] Manual testing passes on Android 7–15 — **partial**: exercised on an
+      emulator (API 36) only
 
 ---
 
@@ -612,9 +635,10 @@ The following features from the original roadmap are explicitly excluded from Ph
 | Handlebar controller support | Future (Phase 5+) | Sena/Cardo use proprietary protocols, not standard Bluetooth HID. Requires proprietary SDKs. |
 | Roadblock / closure detection | Future (Phase 5+) | Requires external APIs (e.g., Highways England OpenData). Not connected to routing pipeline. |
 | Lane guidance | Future (Phase 5+) | Requires lane data from routing API. Current API does not provide it. |
-| Night mode map theme | — | Already implemented via osmdroid's `INVERT_COLORS` in `MapScreen.kt:159-162`. |
+| Night mode map theme | — | Already implemented via osmdroid's `INVERT_COLORS` in `MapScreen.kt` (line numbers have since moved). |
 
 ---
 
-*Last updated: 2026-08-08*
+*Last updated: 2026-08-10 — audited against the shipped code: status header added,
+acceptance criteria resolved, planned-vs-shipped differences recorded at the top.*
 *Phase 4 scope: Navigation features from FUTURE_FEATURES.md (Phase 4 section), revised after adversarial review*

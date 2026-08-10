@@ -18,6 +18,11 @@ Phase 2 adds offline capabilities to MotoRider, enabling route planning and navi
 | 2.5 Map layer selection | ⏸️ Saved for later | UI-only feature, low priority |
 | 2.6 Weather overlay | ⏸️ Saved for later | Requires external API keys, low priority |
 
+**As shipped (2.1):** five predefined regions — South East UK, South West UK, Wales,
+Peak & Lake District, Scottish Highlands (`OfflineRegion.DEFAULTS`). Region metadata
+persists to `filesDir/offline_regions.json`, not SQLite as sketched below. The
+user-drawn custom bounding box described in "Region Definition" was **not** built.
+
 ---
 
 ## 2.1 — Offline Map Downloads (Per Region)
@@ -514,10 +519,14 @@ Phase 2 adds offline capabilities to MotoRider, enabling route planning and navi
 - [x] Map tiles are cached automatically (configurable size) ✅ COMPLETE
 - [ ] User can switch between map layers (standard, terrain, satellite) — *Saved for later*
 - [ ] Weather overlay displays correctly — *Saved for later*
-- [ ] All features work without internet connection — *Partial: maps only, no offline routing*
-- [ ] Storage usage is clearly communicated to user
-- [ ] Performance is acceptable (route calculation < 5s)
+- [ ] All features work without internet connection — *Partial: maps only. Routing
+      and place search both need a connection; an offline banner says so.*
+- [x] Storage usage is clearly communicated to user — `StorageStatsCard` shows used
+      and available space, and a download is blocked if it would not fit
+- [ ] Performance is acceptable (route calculation < 5s) — *not measured*
 
 ---
 
-*Last updated: 2026-08-08 — Phase 2 status: 2 of 6 features complete (2.1, 2.4)*
+*Last updated: 2026-08-10 — audited against the shipped code: region list and storage
+persistence corrected, storage-communication criterion ticked.*
+*Phase 2 status: 2 of 6 features complete (2.1, 2.4)*

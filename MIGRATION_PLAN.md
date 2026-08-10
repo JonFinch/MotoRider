@@ -1,5 +1,17 @@
 # MotoRider Migration Plan: OSRM → Local MapRouting API
 
+> **STATUS: DONE.** This migration is complete and the document is kept as a record
+> of what changed and why. The "Implementation Order" near the end is history, not a
+> to-do list. Verified against the code: no OSRM references remain, `RouteType` no
+> longer carries vehicle types (MOTORCYCLE/TRUCK/CAR/BIKE), `parseOsrmRoutes` and
+> the other deprecated helpers are gone, and `ApiConfig` supplies the base URL from
+> `BuildConfig`.
+>
+> One later change worth noting against the risk table at the foot of this document:
+> Nominatim rate-limiting was listed as "optional: could add throttle/delay". A
+> throttle now exists — `RouteUtils.throttleNominatim` holds one request per second
+> and sends a contact in the User-Agent, as Nominatim's usage policy requires.
+
 ## API Summary
 
 | Service | Port | Relevant Endpoint |
@@ -445,6 +457,12 @@ Note: `Icons.Outlined.Star` replaces `Icons.Outlined.Terrain` (elevation). A new
 
 **Addresses review issues:** #7 (curvature display format), #15 (LegChip else branch), #4 (round trip assumption documented).
 
+> **Since superseded.** The line numbers above are long stale, and two of these
+> decisions were later reversed: the `Score` StatItem was dropped from
+> `RouteInfoCard` (a bare `0.87` told a rider nothing), leaving distance, duration
+> and curves/km; and `LegChip` now lives in `PlanPanel.kt`, not `MapScreen.kt`.
+> `R.string.score_label` is still defined but no longer used.
+
 ---
 
 ## Change #9: Test Files
@@ -532,4 +550,4 @@ After all tests pass with the new code:
 | Round trip (start==end) rejected by API | Low | Medium | Same as OSRM behavior — if API rejects, fallback to straight-line kick in. User still gets a route. |
 | API server not running | Medium | Low | Same fallback behavior as current OSRM — straight-line estimation. Better: we now log clearly which error occurred. |
 | Geometry array empty (API returns no route) | Low | Medium | Handled — empty geometry check returns empty routes list, falls back to straight-line. |
-| nominatim rate-limiting | Low | Low | Unchanged from current behavior. Optional: could add throttle/delay. |
+| nominatim rate-limiting | Low | Low | ~~Unchanged from current behavior. Optional: could add throttle/delay.~~ **Resolved:** `RouteUtils.throttleNominatim` enforces one request per second and sets a contactable User-Agent. |

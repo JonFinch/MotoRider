@@ -12,7 +12,9 @@ map data via osmdroid, and a separate self-hosted routing API (MotoRiderMaps).
 ./gradlew installDebug         # install on a connected device/emulator
 ```
 
-Kotlin 100%, no Java sources. Gradle Groovy DSL, `compileSdk`/`targetSdk` 36,
+All production and unit-test code is Kotlin. The one Java file left is
+`androidTest/.../ExampleInstrumentedTest.java`, the untouched new-project template;
+it is not part of the JVM test run. Gradle Groovy DSL, `compileSdk`/`targetSdk` 36,
 `minSdk` 24.
 
 ### Pointing at a routing API
@@ -45,6 +47,10 @@ app/src/main/java/com/motorider/
 ├── config/ApiConfig.kt          API + tile base URLs from BuildConfig
 ├── models/                      Route, Waypoint, RouteType, Avoidance,
 │                                TurnInstruction, NavigationWarning, OfflineRegion
+├── data/OfflineRegionRepository.kt  process-wide singleton over
+│                                offline_regions.json; shared by the download
+│                                service and the UI so progress actually reaches
+│                                the screen
 ├── services/
 │   ├── RouteService.kt          POSTs to the routing API; falls back to a
 │   │                            straight-line ESTIMATE flagged as such
@@ -54,39 +60,53 @@ app/src/main/java/com/motorider/
 ├── navigation/
 │   ├── NavigationManager.kt     the live navigation state machine
 │   ├── NavigationState.kt       NavigationState enum + NavigationUIState
+│   ├── NavigationCamera.kt      heading/zoom logic for the following camera
 │   └── TTSManager.kt            TextToSpeech wrapper
 ├── ui/
-│   ├── screen/                  MapScreen (planning, ~1600 lines),
-│   │                            NavigationScreen, OfflineMapManagerScreen
-│   ├── component/               OsmMapView, TurnBanner, Speedometer,
-│   │                            NextManeuverCard
+│   ├── screen/
+│   │   ├── MapScreen.kt         map, drawer, Quick Ride, Search, route results
+│   │   ├── PlanPanel.kt         the route-planning sheet and its dialogs
+│   │   ├── RoutePlanning.kt     stop resolution, routing, leg stitching
+│   │   ├── NavigationScreen.kt  the riding overlay
+│   │   └── OfflineMapManagerScreen.kt
+│   ├── component/               OsmMapView, LocationPicker, TurnBanner,
+│   │                            Speedometer
 │   ├── viewmodel/               NavigationViewModel, OfflineMapManagerViewModel
 │   └── theme/                   Material 3 theme, light/dark/system
 ├── utils/
-│   ├── RouteUtils.kt            geocoding, API response parsing, turn-instruction
-│   │                            generation
+│   ├── RouteUtils.kt            geocoding, place search, API response parsing,
+│   │                            turn-instruction generation
 │   ├── NavigationUtils.kt       pure geometry: snapping, bearings, off-route
 │   └── MapTileSource.kt         tile source wiring
-└── maps/MotorcycleMapRenderer.kt   route polyline rendering
+└── maps/MotorcycleMapRenderer.kt   route polyline, stop markers, route framing
 ```
 
 ## Features
 
-**Route planning** — start, end and intermediate waypoints, geocoded through
-Nominatim. Four ride styles (Direct / Fast / Curvy / Extra Curvy) and five
+**Route planning** — start, destination and intermediate stops. Each is a row that
+opens a full-screen place picker (`LocationPicker.kt`); picking a result stores its
+coordinates on the stop, so a chosen place is never geocoded a second time. Four
+ride styles (Direct / Fast / Curvy / Extra Curvy), settable per leg, and five
 avoidances (highways, tolls, ferries, unpaved, tracks & service roads). Returns
-several ranked alternatives with distance, duration, curves/km and elevation gain.
+several ranked alternatives with distance, duration and curves/km.
 
 **Quick Ride** — generates a round trip of a chosen distance and compass direction
-from the rider's current position.
+from the rider's current position, with its own ride style. Avoidances are shared
+with the planning sheet: they constrain what can be ridden at all, so they mean the
+same thing whichever screen produced the route.
+
+**Search** — find a place, see it on the map, send it to the plan as the destination
+or as another stop.
 
 **Turn-by-turn navigation** — GPS tracking against the planned route geometry, with
-spoken and on-screen manoeuvres, live ETA, a speedometer, off-route recalculation
-and skippable intermediate waypoints. See "Navigation architecture" below.
+spoken and on-screen manoeuvres, live ETA, a speedometer, a route-progress bar,
+off-route recalculation and skippable intermediate waypoints. See "Navigation
+architecture" below.
 
-**Offline maps** — predefined regions downloaded into osmdroid's tile cache for
+**Offline maps** — five predefined regions (South East UK, South West UK, Wales,
+Peak & Lake District, Scottish Highlands) downloaded into osmdroid's tile cache for
 riding without coverage, with a connectivity banner making it obvious when routing
-calls will fail.
+calls will fail. Custom user-drawn regions are not supported.
 
 **Theming** — light / dark / system. Dark mode applies osmdroid's `INVERT_COLORS`
 to the map: OSM's default white tiles are a genuine glare hazard on a
@@ -152,16 +172,33 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
   `isEstimate = true` and the UI says so loudly — a rider following an unflagged
   straight line would ride across whatever lies between the points. The same applies
   to `avoidancesHonoured` and `curvatureAvailable`: silently ignoring a ticked
-  "Avoid Ferries" is the exact failure the feature exists to prevent.
+  "Avoid Ferries" is the exact failure the feature exists to prevent. The rule now
+  covers addresses too: a stop that cannot be geocoded stops planning and is named
+  in a snackbar. `planRoute` used to substitute a point a couple of kilometres from
+  the rider and route there, so a typo produced a confident-looking route to a field.
+- **Per-leg ride styles mean separate requests.** The routing API takes one
+  `curviness` per call, so legs with different styles are routed one at a time and
+  joined by `stitchLegs`. Sending only the first leg's style would be the same quiet
+  betrayal as an ignored avoidance. Alternatives are dropped for mixed-style trips —
+  leg 1's alternatives and leg 2's are not comparable as whole-trip options.
+- **Picked places carry their coordinates.** `RouteStop.point` is filled in when a
+  search result is tapped. Re-geocoding a display name at routing time can resolve
+  to a different place, because Nominatim ranks by relevance.
 - **Comments explain *why*, not *what*.** Most non-obvious code here encodes a
   platform constraint or a safety consideration; keep that reasoning with it.
-- **User-facing strings live in `strings.xml`.** No hardcoded UI text.
+- **User-facing strings live in `strings.xml`.** No hardcoded UI text. `RouteUtils`
+  is the one exception and deliberately so: it has no `Context` because its geometry
+  is unit-tested on the JVM, so it emits `ManeuverType` and the UI resolves the words
+  (`TurnBanner.getInstructionText`).
+- **Nominatim allows one request a second** and wants a contact in the User-Agent.
+  `RouteUtils.throttleNominatim` holds the gap on the shared executor; stop
+  resolution is sequential for the same reason.
 - **Route geometry is dense.** Thousands of vertices on a long route — anything
   running per-vertex per-GPS-fix needs to be cheap or windowed.
 
 ## Testing
 
-87 JVM unit tests, no device required:
+134 JVM unit tests, no device required:
 
 | Suite | Covers |
 |---|---|
@@ -170,6 +207,8 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
 | `NavigationCameraTest` | speed→zoom curve, heading smoothing, pinch override |
 | `TurnInstructionsTest` | manoeuvre generation from geometry |
 | `RouteUtilsTest` | geocoding and API response parsing |
+| `PlaceSearchTest` | place-name splitting, suggestion parsing, coordinate carry |
+| `StitchLegsTest` | joining per-leg routes: geometry, sums, weighted curvature |
 | `RouteServiceTest`, `RouteModelTest`, `RoundTripTest` | routing and models |
 
 `testOptions { unitTests.returnDefaultValues = true }` lets classes that log be
@@ -209,9 +248,15 @@ without it.
   class would be guesswork a rider might act on. `CompactSpeedometer` therefore shows
   current speed only.
 - No offline routing. Offline maps cover tiles only; planning a route needs a
-  connection.
-- Planning UI lives in one ~1600-line `MapScreen.kt` and is the obvious next
-  refactor.
+  connection — and place search needs one too, since Nominatim is remote.
+- Stops cannot be reordered by dragging, and there is no "pick on the map" option
+  in the location picker. Both are natural next additions to `PlanPanel`.
+- `NavigationUIState.upcomingInstructions` is computed on every fix and consumed by
+  nothing. `PHASE4_PLAN.md` planned a `NextManeuverCard` for it that was never
+  built — either build it or stop computing the list.
+- The arrival screen shows no ride summary. `NavigationUIState` publishes only
+  what remains, not totals, so that would need the ViewModel to keep them.
+- No search history or saved places, so a regular route is retyped every time.
 
 ## Related docs
 
