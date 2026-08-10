@@ -61,6 +61,40 @@ class RouteService {
     }
 
     /**
+     * Ask the routing service for a loop back to [start].
+     *
+     * Not expressible as a route with via points, which is what this used to be:
+     * three coordinates on a compass circle, each snapped to whatever road was
+     * nearest, so the rider was sent up dead-end lanes and back. The service
+     * generates its own via points on the network and picks between candidate
+     * loops. See MotoRiderMaps' API_REFERENCE for the selection it applies.
+     */
+    fun calculateRoundTripAsync(
+        start: Waypoint,
+        distanceMeters: Double,
+        headingDegrees: Double,
+        routePreference: RouteType,
+        avoidances: Set<Avoidance>?,
+        callback: RouteCalculationCallback?
+    ) {
+        executor.execute {
+            try {
+                val routes = fetchRoutesFromApi(
+                    start = start,
+                    end = start,
+                    waypoints = null,
+                    routePreference = routePreference,
+                    avoidances = avoidances,
+                    roundTrip = RoundTripRequest(distanceMeters, headingDegrees)
+                )
+                callback?.onRouteCalculated(routes)
+            } catch (e: Exception) {
+                callback?.onError(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    /**
      * Blocking route calculation, for callers that already have their own worker
      * (a coroutine on [Dispatchers.IO], say). Never call this from the main thread.
      */
@@ -72,12 +106,63 @@ class RouteService {
         avoidances: Set<Avoidance>?
     ): List<Route> = fetchRoutesFromApi(start, end, waypoints, routePreference, avoidances)
 
+    /** Target length and initial heading for a loop. */
+    internal data class RoundTripRequest(val distanceMeters: Double, val headingDegrees: Double)
+
+    /**
+     * The request body, split out so the contract with the routing API is testable
+     * without a network. The units are the trap: [Route] and the Quick Ride UI both
+     * work in kilometres, the API takes `distance_m` in metres, and a loop asked for
+     * in the wrong unit is 58 metres long rather than 58 km.
+     */
+    internal fun buildRequestBody(
+        start: Waypoint,
+        end: Waypoint,
+        waypoints: List<Waypoint>?,
+        routePreference: RouteType,
+        avoidances: Set<Avoidance>?,
+        roundTrip: RoundTripRequest? = null
+    ): JSONObject = JSONObject().apply {
+        put("start", JSONObject().apply {
+            put("lat", start.location.latitude)
+            put("lon", start.location.longitude)
+        })
+        put("end", JSONObject().apply {
+            put("lat", end.location.latitude)
+            put("lon", end.location.longitude)
+        })
+        // A loop has no via points to send: the service generates its own on the
+        // network. Sending the old compass-circle points alongside would drag the
+        // route back onto whatever road sat nearest each one.
+        if (roundTrip != null) {
+            put("round_trip", JSONObject().apply {
+                put("distance_m", roundTrip.distanceMeters)
+                put("heading_deg", roundTrip.headingDegrees)
+            })
+        } else if (!waypoints.isNullOrEmpty()) {
+            put("waypoints", JSONArray().apply {
+                waypoints.forEach { wp ->
+                    put(JSONObject().apply {
+                        put("lat", wp.location.latitude)
+                        put("lon", wp.location.longitude)
+                    })
+                }
+            })
+        }
+        put("curviness", routePreference.apiValue)
+        val validAvoidances = avoidances?.mapNotNull { it.apiValue }
+        if (!validAvoidances.isNullOrEmpty()) {
+            put("avoidances", JSONArray(validAvoidances))
+        }
+    }
+
     private fun fetchRoutesFromApi(
         start: Waypoint,
         end: Waypoint,
         waypoints: List<Waypoint>?,
         routePreference: RouteType,
-        avoidances: Set<Avoidance>?
+        avoidances: Set<Avoidance>?,
+        roundTrip: RoundTripRequest? = null
     ): List<Route> {
         val fullWaypoints = buildFullWaypointList(start, end, waypoints)
         val fallbackRoute = Route(routePreference.displayName, fullWaypoints)
@@ -85,31 +170,7 @@ class RouteService {
         var failureReason = "Routing service unreachable"
 
         try {
-            val jsonBody = JSONObject().apply {
-                put("start", JSONObject().apply {
-                    put("lat", start.location.latitude)
-                    put("lon", start.location.longitude)
-                })
-                put("end", JSONObject().apply {
-                    put("lat", end.location.latitude)
-                    put("lon", end.location.longitude)
-                })
-                if (!waypoints.isNullOrEmpty()) {
-                    put("waypoints", JSONArray().apply {
-                        waypoints.forEach { wp ->
-                            put(JSONObject().apply {
-                                put("lat", wp.location.latitude)
-                                put("lon", wp.location.longitude)
-                            })
-                        }
-                    })
-                }
-                put("curviness", routePreference.apiValue)
-                val validAvoidances = avoidances?.mapNotNull { it.apiValue }
-                if (!validAvoidances.isNullOrEmpty()) {
-                    put("avoidances", JSONArray(validAvoidances))
-                }
-            }
+            val jsonBody = buildRequestBody(start, end, waypoints, routePreference, avoidances, roundTrip)
 
             val url = URL("${ApiConfig.ROUTING_API_BASE_URL}/route")
             val conn = url.openConnection() as HttpURLConnection

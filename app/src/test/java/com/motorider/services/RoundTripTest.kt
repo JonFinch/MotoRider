@@ -1,168 +1,108 @@
 package com.motorider.services
 
+import com.motorider.models.Avoidance
+import com.motorider.models.RouteType
+import com.motorider.models.Waypoint
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.osmdroid.util.GeoPoint
 
+/**
+ * The request the app sends for a Quick Ride loop.
+ *
+ * The loop itself is built by the routing service — see Gate H of MotoRiderMaps'
+ * `scripts/verify_routing.py`, which covers the loop closing on the start, its
+ * length matching the request, and the absence of a long out-and-back. What is
+ * this side's to get right is the contract: the right field names, and metres.
+ *
+ * This replaced a suite that re-implemented the old compass-circle geometry inline
+ * and asserted against its own arithmetic. It referenced no production code, so it
+ * could not fail whatever the app did, and it described a construction that no
+ * longer exists.
+ */
 class RoundTripTest {
 
+    private val service = RouteService()
+    private val here = Waypoint("Here", GeoPoint(51.45, 0.12))
+
+    private fun roundTripBody(km: Double, headingDeg: Double = 90.0) =
+        service.buildRequestBody(
+            start = here,
+            end = here,
+            waypoints = null,
+            routePreference = RouteType.CURVY,
+            avoidances = emptySet(),
+            roundTrip = RouteService.RoundTripRequest(km * 1000.0, headingDeg)
+        )
+
     @Test
-    fun testRadiusFromTargetDistance() {
-        assertEquals("30km trip", 4.3, 30.0 / 7.0, 0.1)
-        assertEquals("50km trip", 7.1, 50.0 / 7.0, 0.1)
-        assertEquals("80km trip", 11.4, 80.0 / 7.0, 0.1)
-        assertEquals("200km trip", 28.6, 200.0 / 7.0, 0.1)
+    fun `loop distance is sent in metres, not kilometres`() {
+        // The UI works in kilometres and the API takes metres. Getting this wrong
+        // asks for a 58 metre loop, which is the kind of unit slip this codebase
+        // keeps a table about.
+        val body = roundTripBody(58.0)
+
+        assertEquals(58_000.0, body.getJSONObject("round_trip").getDouble("distance_m"), 0.001)
     }
 
     @Test
-    fun testCardinalDirectionUses120DegreeSpread() {
-        val dir = 0.0
-        val spread = 120.0
-        val halfSpread = spread / 2.0
-        val angles = listOf(dir - halfSpread, dir, dir + halfSpread)
+    fun `heading is passed through unchanged`() {
+        val body = roundTripBody(40.0, headingDeg = 225.0)
 
-        assertEquals(-60.0, angles[0], 0.1)
-        assertEquals(0.0, angles[1], 0.1)
-        assertEquals(60.0, angles[2], 0.1)
+        assertEquals(225.0, body.getJSONObject("round_trip").getDouble("heading_deg"), 0.001)
     }
 
     @Test
-    fun testIntercardinalDirectionUses90DegreeSpread() {
-        val dir = 45.0
-        val spread = 90.0
-        val halfSpread = spread / 2.0
-        val angles = listOf(dir - halfSpread, dir, dir + halfSpread)
+    fun `a loop sends no via points`() {
+        // The service generates its own on the network. Sending compass-circle
+        // points alongside is exactly what produced the spurs.
+        val body = roundTripBody(58.0)
 
-        assertEquals(0.0, angles[0], 0.1)
-        assertEquals(45.0, angles[1], 0.1)
-        assertEquals(90.0, angles[2], 0.1)
+        assertFalse(body.has("waypoints"))
     }
 
     @Test
-    fun testNorthAllWaypointsAreNorthOfCenter() {
-        val center = GeoPoint(50.0, 0.0)
-        val direction = 0
-        val spread = 120.0
-        val halfSpread = spread / 2.0
-        val dir = direction.toDouble()
-        val radiusKm = 4.3
+    fun `a loop still carries the ride style and avoidances`() {
+        val body = service.buildRequestBody(
+            start = here,
+            end = here,
+            waypoints = null,
+            routePreference = RouteType.EXTRA_CURVY,
+            avoidances = setOf(Avoidance.FERRIES),
+            roundTrip = RouteService.RoundTripRequest(30_000.0, 0.0)
+        )
 
-        val angles = listOf(dir - halfSpread, dir, dir + halfSpread)
-        for (angle in angles) {
-            val rad = Math.toRadians(angle)
-            val latOffset = (radiusKm / 111.32) * Math.cos(rad)
-            val wp = GeoPoint(center.latitude + latOffset, center.longitude)
-            assertTrue("Waypoint at angle $angle should be north", wp.latitude > center.latitude)
-        }
+        assertEquals("extra_curvy", body.getString("curviness"))
+        assertEquals("ferry", body.getJSONArray("avoidances").getString(0))
     }
 
     @Test
-    fun testSouthAllWaypointsAreSouthOfCenter() {
-        val center = GeoPoint(50.0, 0.0)
-        val direction = 180
-        val spread = 120.0
-        val halfSpread = spread / 2.0
-        val dir = direction.toDouble()
-        val radiusKm = 4.3
+    fun `an ordinary route sends waypoints and no round trip block`() {
+        val via = Waypoint("Via", GeoPoint(51.5, 0.2))
+        val end = Waypoint("End", GeoPoint(51.6, 0.3))
 
-        val angles = listOf(dir - halfSpread, dir, dir + halfSpread)
-        for (angle in angles) {
-            val rad = Math.toRadians(angle)
-            val latOffset = (radiusKm / 111.32) * Math.cos(rad)
-            val wp = GeoPoint(center.latitude + latOffset, center.longitude)
-            assertTrue("Waypoint at angle $angle should be south", wp.latitude < center.latitude)
-        }
+        val body = service.buildRequestBody(
+            start = here,
+            end = end,
+            waypoints = listOf(via),
+            routePreference = RouteType.CURVY,
+            avoidances = emptySet()
+        )
+
+        assertFalse(body.has("round_trip"))
+        assertEquals(1, body.getJSONArray("waypoints").length())
+        assertEquals(51.5, body.getJSONArray("waypoints").getJSONObject(0).getDouble("lat"), 1e-9)
     }
 
     @Test
-    fun testEastAllWaypointsAreEastOfCenter() {
-        val center = GeoPoint(50.0, 0.0)
-        val direction = 90
-        val spread = 120.0
-        val halfSpread = spread / 2.0
-        val dir = direction.toDouble()
-        val radiusKm = 4.3
-        val cosLat = Math.cos(Math.toRadians(center.latitude))
+    fun `a loop starts and ends at the rider`() {
+        val body = roundTripBody(58.0)
 
-        val angles = listOf(dir - halfSpread, dir, dir + halfSpread)
-        for (angle in angles) {
-            val rad = Math.toRadians(angle)
-            val lonOffset = (radiusKm / (111.32 * cosLat)) * Math.sin(rad)
-            val wp = GeoPoint(center.latitude, center.longitude + lonOffset)
-            assertTrue("Waypoint at angle $angle should be east", wp.longitude > center.longitude)
-        }
-    }
-
-    @Test
-    fun testWestAllWaypointsAreWestOfCenter() {
-        val center = GeoPoint(50.0, 0.0)
-        val direction = 270
-        val spread = 120.0
-        val halfSpread = spread / 2.0
-        val dir = direction.toDouble()
-        val radiusKm = 4.3
-        val cosLat = Math.cos(Math.toRadians(center.latitude))
-
-        val angles = listOf(dir - halfSpread, dir, dir + halfSpread)
-        for (angle in angles) {
-            val rad = Math.toRadians(angle)
-            val lonOffset = (radiusKm / (111.32 * cosLat)) * Math.sin(rad)
-            val wp = GeoPoint(center.latitude, center.longitude + lonOffset)
-            assertTrue("Waypoint at angle $angle should be west", wp.longitude < center.longitude)
-        }
-    }
-
-    @Test
-    fun testNENoPointsAreSouthOrWest() {
-        val center = GeoPoint(50.0, 0.0)
-        val direction = 45
-        val spread = 90.0
-        val halfSpread = spread / 2.0
-        val dir = direction.toDouble()
-        val radiusKm = 4.3
-        val cosLat = Math.cos(Math.toRadians(center.latitude))
-
-        val angles = listOf(dir - halfSpread, dir, dir + halfSpread)
-        for (angle in angles) {
-            val rad = Math.toRadians(angle)
-            val latOffset = (radiusKm / 111.32) * Math.cos(rad)
-            val lonOffset = (radiusKm / (111.32 * cosLat)) * Math.sin(rad)
-            val wp = GeoPoint(center.latitude + latOffset, center.longitude + lonOffset)
-
-            assertFalse("Waypoint at $angle should NOT be south", wp.latitude < center.latitude - 0.001)
-            assertFalse("Waypoint at $angle should NOT be west", wp.longitude < center.longitude - 0.001)
-        }
-    }
-
-    @Test
-    fun testSWNoPointsAreNorthOrEast() {
-        val center = GeoPoint(50.0, 0.0)
-        val direction = 225
-        val spread = 90.0
-        val halfSpread = spread / 2.0
-        val dir = direction.toDouble()
-        val radiusKm = 4.3
-        val cosLat = Math.cos(Math.toRadians(center.latitude))
-
-        val angles = listOf(dir - halfSpread, dir, dir + halfSpread)
-        for (angle in angles) {
-            val rad = Math.toRadians(angle)
-            val latOffset = (radiusKm / 111.32) * Math.cos(rad)
-            val lonOffset = (radiusKm / (111.32 * cosLat)) * Math.sin(rad)
-            val wp = GeoPoint(center.latitude + latOffset, center.longitude + lonOffset)
-
-            assertFalse("Waypoint at $angle should NOT be north", wp.latitude > center.latitude + 0.001)
-            assertFalse("Waypoint at $angle should NOT be east", wp.longitude > center.longitude + 0.001)
-        }
-    }
-
-    @Test
-    fun testRadiusScalesWithDesiredDistance() {
-        val shortR = 30.0 / 7.0
-        val longR = 200.0 / 7.0
-        assertTrue(longR > shortR)
-        assertTrue((longR / shortR) > 6.0)
+        assertTrue(
+            body.getJSONObject("start").getDouble("lat") ==
+                body.getJSONObject("end").getDouble("lat")
+        )
     }
 }

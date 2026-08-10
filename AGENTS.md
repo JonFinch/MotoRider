@@ -90,10 +90,19 @@ ride styles (Direct / Fast / Curvy / Extra Curvy), settable per leg, and five
 avoidances (highways, tolls, ferries, unpaved, tracks & service roads). Returns
 several ranked alternatives with distance, duration and curves/km.
 
-**Quick Ride** — generates a round trip of a chosen distance and compass direction
-from the rider's current position, with its own ride style. Avoidances are shared
-with the planning sheet: they constrain what can be ridden at all, so they mean the
-same thing whichever screen produced the route.
+**Quick Ride** — asks the routing service for a loop of a chosen distance and
+compass heading from the rider's current position, with its own ride style.
+Avoidances are shared with the planning sheet: they constrain what can be ridden at
+all, so they mean the same thing whichever screen produced the route.
+
+The app does **not** build the loop. It used to, by placing three via points on a
+circle around the rider and routing through them — but those are arbitrary
+coordinates, so each snapped to whatever road was nearest, often a dead-end lane,
+and the rider was sent up it and back. Over five varied requests that produced a
+mean worst out-and-back of 4.2 km. The service generates its own via points on the
+network and picks between candidate loops; the same measurement came to 0.45 km.
+See `round_trip` in MotoRiderMaps' `API_REFERENCE.md`, and Gate H of its
+`scripts/verify_routing.py`.
 
 **Search** — find a place, see it on the map, send it to the plan as the destination
 or as another stop.
@@ -269,7 +278,7 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
 
 ## Testing
 
-154 JVM unit tests, no device required:
+150 JVM unit tests, no device required:
 
 | Suite | Covers |
 |---|---|
@@ -281,7 +290,8 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
 | `RouteUtilsTest` | geocoding and API response parsing |
 | `PlaceSearchTest` | place-name splitting, suggestion parsing, coordinate carry |
 | `StitchLegsTest` | joining per-leg routes: geometry, sums, weighted curvature |
-| `RouteServiceTest`, `RouteModelTest`, `RoundTripTest` | routing and models |
+| `RouteServiceTest`, `RouteModelTest` | routing and models |
+| `RoundTripTest` | the loop request contract — field names, and metres not kilometres |
 | `RouteRejectionTest` | a service refusal must not become a straight-line estimate |
 
 `testOptions { unitTests.returnDefaultValues = true }` lets classes that log be

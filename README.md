@@ -16,7 +16,8 @@ OpenStreetMap via osmdroid; routing comes from a separate self-hosted API
   each chosen from a full-screen place search. Four ride styles (Direct, Fast,
   Curvy, Extra Curvy), settable for the whole trip or per leg, and five avoidances.
 - **Quick Ride** — a round trip of a chosen distance and compass heading, looping
-  back to where the rider is now.
+  back to where the rider is now. Built by the routing service as a real loop, so
+  it does not spur off to a via point and come back.
 - **Search** — find a place, see it on the map, drop it straight into the plan.
 - **Turn-by-turn navigation** — GPS tracking against the route with spoken and
   on-screen manoeuvres, live ETA, speedometer, progress, off-route recalculation
@@ -95,7 +96,7 @@ straight-line estimates instead of routes.
 
 ```bash
 ./gradlew assembleDebug        # build
-./gradlew testDebugUnitTest    # 154 JVM unit tests, no device needed
+./gradlew testDebugUnitTest    # 150 JVM unit tests, no device needed
 python3 scripts/contrast.py .  # colour-contrast audit (non-zero exit on a regression)
 ./gradlew installDebug         # install on a connected device/emulator
 ```
