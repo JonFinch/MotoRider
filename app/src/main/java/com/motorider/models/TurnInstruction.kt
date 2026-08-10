@@ -24,7 +24,15 @@ data class TurnInstruction(
     /** Compass bearing to travel after the manoeuvre, degrees clockwise from north. */
     val bearing: Double,
     /** Index into the route geometry where this manoeuvre occurs. */
-    val segmentIndex: Int
+    val segmentIndex: Int,
+    /**
+     * The road this manoeuvre puts the rider on — "Tagg Lane", "B5055" — or empty
+     * for an unnamed road. Only ever populated from the routing API: it cannot be
+     * derived from geometry, which is why manoeuvres used to be interchangeable.
+     */
+    val roadName: String = "",
+    /** Which exit to take, for [ManeuverType.ROUNDABOUT]. Null otherwise. */
+    val roundaboutExit: Int? = null
 )
 
 enum class ManeuverType {
@@ -34,6 +42,11 @@ enum class ManeuverType {
     TURN_RIGHT,
     TURN_SLIGHT_LEFT,
     TURN_SLIGHT_RIGHT,
+    TURN_SHARP_LEFT,
+    TURN_SHARP_RIGHT,
+    KEEP_LEFT,
+    KEEP_RIGHT,
+    ROUNDABOUT,
     UTURN,
     ARRIVE,
     WAYPOINT_ARRIVED

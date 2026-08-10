@@ -218,6 +218,14 @@
     <string name="nav_turn_right">Turn right</string>
     <string name="nav_turn_slight_left">Turn slight left</string>
     <string name="nav_turn_slight_right">Turn slight right</string>
+    <string name="nav_turn_sharp_left">Sharp left</string>
+    <string name="nav_turn_sharp_right">Sharp right</string>
+    <string name="nav_keep_left">Keep left</string>
+    <string name="nav_keep_right">Keep right</string>
+    <string name="nav_roundabout">Roundabout</string>
+    <string name="nav_roundabout_exit">Roundabout, exit %d</string>
+    <!-- Manoeuvre with the road it puts you on: "Turn left" + "Tagg Lane". -->
+    <string name="nav_onto_fmt">%1$s onto %2$s</string>
     <string name="nav_u_turn">U-turn</string>
     <string name="nav_continue">Continue</string>
     <string name="nav_arrive">Arrive at destination</string>

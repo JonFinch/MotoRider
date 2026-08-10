@@ -325,6 +325,12 @@ object RouteUtils {
                     route.curvatureScore = metadata.curvaturePerKm
                 }
                 route.elevationGain = 0.0
+                // Manoeuvres come from the routing service when it supplies them.
+                // A null here (not an empty list) means it did not, and the caller
+                // falls back to deriving them from geometry.
+                route.turnInstructions = parseInstructions(
+                    routeObj.optJSONArray("instructions"), points, route.duration * 60.0
+                )
                 route.avoidancesHonoured = avoidancesHonoured
                 route.curvatureAvailable = curvatureAvailable
                 if (!avoidancesHonoured || !curvatureAvailable) {
@@ -337,6 +343,104 @@ object RouteUtils {
         } catch (e: Exception) {
             emptyList()
         }
+    }
+
+    /**
+     * Turn the routing service's own instructions into [TurnInstruction]s.
+     *
+     * Strongly preferred over [generateTurnInstructions]. The service knows where
+     * the roads actually change; geometry does not, and cannot — a bend and a
+     * junction are the same polyline. Deriving manoeuvres from heading changes
+     * produced eight where four were real on a 19 km route, and one every 770 m on
+     * a curvy one, nearly all of them announcing that the road curves.
+     *
+     * Returns null when the service supplied nothing, so the caller can fall back
+     * rather than navigate with no manoeuvres at all. An empty array is treated the
+     * same as absent.
+     *
+     * @param geometry the route's points; `interval` on each instruction indexes
+     *   into this, which is how a manoeuvre gets its distance along the route.
+     */
+    fun parseInstructions(
+        instructions: JSONArray?,
+        geometry: List<GeoPoint>,
+        durationSeconds: Double
+    ): List<TurnInstruction>? {
+        if (instructions == null || instructions.length() == 0) return null
+        if (geometry.size < 2) return null
+
+        val cumulative = calculateCumulativeDistances(geometry)
+        val totalDistance = cumulative.last()
+        val parsed = mutableListOf<TurnInstruction>()
+
+        for (i in 0 until instructions.length()) {
+            val obj = instructions.optJSONObject(i) ?: continue
+
+            // `interval` is [firstPoint, lastPoint]; the manoeuvre happens at the
+            // start of its own interval, which is where the previous one ended.
+            val interval = obj.optJSONArray("interval")
+            val index = (interval?.optInt(0) ?: continue).coerceIn(0, geometry.lastIndex)
+
+            val distAlong = distanceAlongRouteAt(index, cumulative)
+            val type = maneuverTypeForSign(obj.optInt("sign", 0))
+
+            // Prefer the road number over the name where both exist: a rider
+            // following signs sees "A6", not "Fairfield Road".
+            val roadName = obj.optString("street_ref", "").ifBlank {
+                obj.optString("street_name", "")
+            }
+
+            parsed.add(
+                TurnInstruction(
+                    maneuverType = type,
+                    instruction = obj.optString("text", ""),
+                    distanceToManeuver = 0.0,
+                    distanceAlongRoute = distAlong,
+                    distanceRemaining = (totalDistance - distAlong).coerceAtLeast(0.0),
+                    timeRemaining = if (totalDistance > 0 && durationSeconds > 0) {
+                        ((totalDistance - distAlong) / totalDistance) * durationSeconds
+                    } else 0.0,
+                    bearing = bearingAt(geometry, index),
+                    segmentIndex = index,
+                    roadName = roadName,
+                    roundaboutExit = obj.optInt("exit_number", 0).takeIf {
+                        it > 0 && type == ManeuverType.ROUNDABOUT
+                    }
+                )
+            )
+        }
+        return parsed.ifEmpty { null }
+    }
+
+    /**
+     * GraphHopper sign codes, which the routing API passes through verbatim.
+     *
+     * Unknown codes become [ManeuverType.CONTINUE] rather than being dropped: an
+     * instruction the app cannot name is still a place the rider must be told
+     * about, and the service's own `text` is displayed alongside.
+     */
+    private fun maneuverTypeForSign(sign: Int): ManeuverType = when (sign) {
+        -98, -8, 8 -> ManeuverType.UTURN
+        -7 -> ManeuverType.KEEP_LEFT
+        -3 -> ManeuverType.TURN_SHARP_LEFT
+        -2 -> ManeuverType.TURN_LEFT
+        -1 -> ManeuverType.TURN_SLIGHT_LEFT
+        0 -> ManeuverType.CONTINUE
+        1 -> ManeuverType.TURN_SLIGHT_RIGHT
+        2 -> ManeuverType.TURN_RIGHT
+        3 -> ManeuverType.TURN_SHARP_RIGHT
+        4 -> ManeuverType.ARRIVE
+        5 -> ManeuverType.WAYPOINT_ARRIVED
+        6 -> ManeuverType.ROUNDABOUT
+        7 -> ManeuverType.KEEP_RIGHT
+        else -> ManeuverType.CONTINUE
+    }
+
+    /** Direction of travel leaving [index]; falls back to the incoming leg at the end. */
+    private fun bearingAt(geometry: List<GeoPoint>, index: Int): Double = when {
+        index < geometry.lastIndex -> calculateBearing(geometry[index], geometry[index + 1])
+        index > 0 -> calculateBearing(geometry[index - 1], geometry[index])
+        else -> 0.0
     }
 
     /**

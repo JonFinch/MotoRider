@@ -10,7 +10,7 @@
 > |---|---|
 > | `navigation/TurnInstruction.kt`, `navigation/NavigationWarning.kt` | live in `models/` |
 > | `navigation/NavigationViewModel.kt` | lives in `ui/viewmodel/` |
-> | `component/NextManeuverCard.kt` | **deliberately not built.** A scrollable list of 3–5 manoeuvres is the wrong shape for this app: the routing API returns no road names, so rows carry no landmark to tell them apart, and the 20° manoeuvre threshold means a curvy route — the kind this app exists to plan — fills the list with curve-following noise. Replaced by a single "then …" line in `TurnBanner`, shown only when the follow-on lands within 150 m of a manoeuvre the rider is already approaching. `upcomingInstructions` was dropped for `followOnInstruction`. |
+> | `component/NextManeuverCard.kt` | **deliberately not built.** A scrollable list is not something a rider reads at speed, in gloves. (Two further objections applied when this was decided — manoeuvres had no road names and a curvy route filled the list with curve-following noise — but both were fixed later by taking instructions from the routing service rather than deriving them from geometry.) Replaced by a single "then …" line in `TurnBanner`, shown only when the follow-on lands within 150 m of a manoeuvre the rider is already approaching. `upcomingInstructions` was dropped for `followOnInstruction`. |
 > | `component/NavigationMapView.kt` | never built — navigation drives the single shared `OsmMapView` via `NavigationMapCamera` |
 > | Full-screen `NavigationScreen` | a **transparent overlay** over the map, controls top and bottom |
 > | Speed-limit display and warnings | not implemented; the routing API returns no limit data |

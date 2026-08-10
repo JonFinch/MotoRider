@@ -125,9 +125,14 @@ class RouteService {
                         val apiRoutes = RouteUtils.parseRouteApiResponse(
                             responseText, fullWaypoints, routePreference
                         )
-                        // Generate turn-by-turn instructions for each route.
+                        // The parser fills turnInstructions from the service's own
+                        // manoeuvres. Only derive them from geometry when it did
+                        // not supply any — an older API, say. Geometry cannot tell
+                        // a bend from a junction, so that path announces every
+                        // corner; it is a fallback, not an equal alternative.
                         // Route.duration is in minutes; instruction times are seconds.
                         for (route in apiRoutes) {
+                            if (route.turnInstructions != null) continue
                             val geometry = route.routeGeometry
                             if (geometry != null && geometry.size >= 2) {
                                 route.turnInstructions = RouteUtils.generateTurnInstructions(
@@ -208,7 +213,9 @@ class RouteService {
         route.elevationGain = 0.0
         route.routeScore = 1.0
         route.routeGeometry = geometry
-        // Generate turn instructions for the fallback route too
+        // Geometry-derived is all there is here: this is the offline estimate, so
+        // there was no service to ask. The line is straight between waypoints, so
+        // the only manoeuvres are at the waypoints themselves.
         route.turnInstructions = RouteUtils.generateTurnInstructions(
             geometry, route.waypoints, durationMinutes * 60.0
         )

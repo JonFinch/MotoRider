@@ -190,7 +190,12 @@ private fun DirectionArrow(
         ManeuverType.TURN_RIGHT -> 45.0
         ManeuverType.TURN_SLIGHT_LEFT -> -22.5
         ManeuverType.TURN_SLIGHT_RIGHT -> 22.5
+        ManeuverType.TURN_SHARP_LEFT -> -90.0
+        ManeuverType.TURN_SHARP_RIGHT -> 90.0
+        ManeuverType.KEEP_LEFT -> -15.0
+        ManeuverType.KEEP_RIGHT -> 15.0
         ManeuverType.UTURN -> 180.0
+        ManeuverType.ROUNDABOUT -> 0.0
         ManeuverType.DEPART -> 0.0
         ManeuverType.ARRIVE -> 0.0
         ManeuverType.WAYPOINT_ARRIVED -> 0.0
@@ -226,19 +231,34 @@ private fun getUrgencyColor(distanceToManeuver: Double): Color {
 }
 
 /**
- * The manoeuvre, in the rider's language.
+ * The manoeuvre, in the rider's language, with the road it leads onto.
  *
- * [TurnInstruction.instruction] carries an English string built in [com.motorider.utils.RouteUtils],
- * which has no `Context` and is unit-tested on the JVM — deliberately, so the
- * geometry stays testable. The type is the durable fact; the words for it belong
- * here, where resources are available. The arrival cases keep the generated text
- * because it names the actual waypoint ("Arrive at Buxton"), which no fixed string
- * can supply.
+ * The type is the durable fact and the words for it live in resources; the road
+ * name comes from the routing service and cannot be localised or derived, so it is
+ * appended rather than baked in. Without it every instruction on a route reads the
+ * same — "Turn right", "Turn right" — which is most of why a list of upcoming
+ * manoeuvres was never worth building.
+ *
+ * The arrival cases keep the service's own text because it names the actual
+ * waypoint ("Arrive at Buxton"), which no fixed string can supply.
  */
 @Composable
 private fun getInstructionText(instruction: TurnInstruction?): String {
     if (instruction == null) return stringResource(R.string.screen_navigation)
 
+    val manoeuvre = manoeuvreText(instruction)
+    val road = instruction.roadName
+    return when {
+        road.isBlank() -> manoeuvre
+        // Arrival text already names its destination.
+        instruction.maneuverType == ManeuverType.ARRIVE ||
+            instruction.maneuverType == ManeuverType.WAYPOINT_ARRIVED -> manoeuvre
+        else -> stringResource(R.string.nav_onto_fmt, manoeuvre, road)
+    }
+}
+
+@Composable
+private fun manoeuvreText(instruction: TurnInstruction): String {
     return when (instruction.maneuverType) {
         ManeuverType.DEPART -> stringResource(R.string.waypoint_start)
         ManeuverType.CONTINUE -> stringResource(R.string.nav_continue)
@@ -246,6 +266,13 @@ private fun getInstructionText(instruction: TurnInstruction?): String {
         ManeuverType.TURN_RIGHT -> stringResource(R.string.nav_turn_right)
         ManeuverType.TURN_SLIGHT_LEFT -> stringResource(R.string.nav_turn_slight_left)
         ManeuverType.TURN_SLIGHT_RIGHT -> stringResource(R.string.nav_turn_slight_right)
+        ManeuverType.TURN_SHARP_LEFT -> stringResource(R.string.nav_turn_sharp_left)
+        ManeuverType.TURN_SHARP_RIGHT -> stringResource(R.string.nav_turn_sharp_right)
+        ManeuverType.KEEP_LEFT -> stringResource(R.string.nav_keep_left)
+        ManeuverType.KEEP_RIGHT -> stringResource(R.string.nav_keep_right)
+        ManeuverType.ROUNDABOUT -> instruction.roundaboutExit
+            ?.let { stringResource(R.string.nav_roundabout_exit, it) }
+            ?: stringResource(R.string.nav_roundabout)
         ManeuverType.UTURN -> stringResource(R.string.nav_u_turn)
         ManeuverType.ARRIVE, ManeuverType.WAYPOINT_ARRIVED ->
             instruction.instruction.ifBlank { stringResource(R.string.nav_arrive) }

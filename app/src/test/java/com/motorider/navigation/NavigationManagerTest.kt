@@ -2,6 +2,7 @@ package com.motorider.navigation
 
 import com.motorider.models.ManeuverType
 import com.motorider.models.Route
+import com.motorider.models.TurnInstruction
 import com.motorider.models.Waypoint
 import com.motorider.utils.RouteUtils
 import com.motorider.utils.distanceToMeters
@@ -56,6 +57,25 @@ class NavigationManagerTest {
 
     private fun manager(config: NavigationConfig = NavigationConfig()): NavigationManager =
         NavigationManager(config).apply { clock = { now } }
+
+    /** A manoeuvre as the routing service supplies it — with a road name attached. */
+    private fun serviceInstruction(
+        type: ManeuverType,
+        text: String,
+        road: String,
+        distanceAlong: Double,
+        index: Int
+    ) = TurnInstruction(
+        maneuverType = type,
+        instruction = text,
+        distanceToManeuver = 0.0,
+        distanceAlongRoute = distanceAlong,
+        distanceRemaining = 0.0,
+        timeRemaining = 0.0,
+        bearing = 0.0,
+        segmentIndex = index,
+        roadName = road
+    )
 
     // ─── Units ───────────────────────────────────────────────────────────────
 
@@ -591,6 +611,76 @@ class NavigationManagerTest {
             0.0, geometry.last().distanceToMeters(original.routeGeometry!!.last()), 5.0
         )
         assertTrue("must carry the remaining original route, not just the detour", geometry.size > detourGeometry.size)
+        assertTrue(rejoined.turnInstructions!!.isNotEmpty())
+    }
+
+    @Test
+    fun aRejoinKeepsTheServiceManoeuvresRatherThanRederivingThem() {
+        val manager = manager()
+        // Both halves carry service instructions, with road names geometry can
+        // never supply. Re-deriving from the joined line would silently drop the
+        // rider back to one instruction per corner for the rest of the ride.
+        val original = routeOf().apply {
+            turnInstructions = listOf(
+                serviceInstruction(ManeuverType.DEPART, "Continue onto Duke's Drive", "Duke's Drive", 0.0, 0),
+                serviceInstruction(ManeuverType.TURN_LEFT, "Turn left onto Tagg Lane", "Tagg Lane", 1400.0, 14),
+                serviceInstruction(ManeuverType.ARRIVE, "Arrive", "", 2000.0, 20)
+            )
+        }
+        manager.startNavigation(original)
+        manager.setPosition(offset(300.0, 300.0), 15f)
+
+        val rejoin = manager.rejoinTarget(lookaheadMeters = 250.0)!!
+        val detourGeometry = listOf(offset(300.0, 300.0), offset(150.0, 450.0), rejoin.point)
+        val detour = routeOf(
+            geometry = detourGeometry,
+            waypoints = listOf(
+                Waypoint("Current position", detourGeometry.first()),
+                Waypoint("Rejoin route", rejoin.point)
+            ),
+            durationMinutes = 2.0
+        ).apply {
+            turnInstructions = listOf(
+                serviceInstruction(ManeuverType.TURN_RIGHT, "Turn right onto Manchester Road", "A5004", 0.0, 0),
+                serviceInstruction(ManeuverType.ARRIVE, "Arrive", "", 400.0, 2)
+            )
+        }
+
+        val rejoined = manager.buildRejoinRoute(detour, rejoin)!!
+        val instructions = rejoined.turnInstructions!!
+
+        assertTrue(
+            "road names only exist on service instructions",
+            instructions.any { it.roadName == "A5004" }
+        )
+        assertTrue(
+            "manoeuvres still ahead on the original route must survive the rejoin",
+            instructions.any { it.roadName == "Tagg Lane" }
+        )
+        assertTrue(
+            "the detour's own arrival is not the destination",
+            instructions.none { it.maneuverType == ManeuverType.ARRIVE && it.roadName == "A5004" }
+        )
+        // Rebased onto the combined route, so distances only ever grow forwards.
+        val distances = instructions.map { it.distanceAlongRoute }
+        assertEquals(distances.sorted(), distances)
+    }
+
+    @Test
+    fun aRejoinFallsBackToGeometryWhenTheServiceGaveNoManoeuvres() {
+        val manager = manager()
+        // An older API, or the offline straight-line estimate. Better a noisy
+        // instruction than none at all.
+        val original = routeOf().apply { turnInstructions = null }
+        manager.startNavigation(original)
+        manager.setPosition(offset(300.0, 300.0), 15f)
+
+        val rejoin = manager.rejoinTarget(lookaheadMeters = 250.0)!!
+        val detourGeometry = listOf(offset(300.0, 300.0), offset(150.0, 450.0), rejoin.point)
+        val detour = routeOf(geometry = detourGeometry, durationMinutes = 2.0)
+
+        val rejoined = manager.buildRejoinRoute(detour, rejoin)!!
+
         assertTrue(rejoined.turnInstructions!!.isNotEmpty())
     }
 

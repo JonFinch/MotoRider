@@ -75,7 +75,7 @@ app/src/main/java/com/motorider/
 │   └── theme/                   Material 3 theme, light/dark/system
 ├── utils/
 │   ├── RouteUtils.kt            geocoding, place search, API response parsing,
-│   │                            turn-instruction generation
+│   │                            manoeuvre parsing (+ geometry fallback)
 │   ├── NavigationUtils.kt       pure geometry: snapping, bearings, off-route
 │   └── MapTileSource.kt         tile source wiring
 └── maps/MotorcycleMapRenderer.kt   route polyline, stop markers, route framing
@@ -100,7 +100,8 @@ or as another stop.
 
 **Turn-by-turn navigation** — GPS tracking against the planned route geometry, with
 spoken and on-screen manoeuvres, live ETA, a speedometer, a route-progress bar,
-off-route recalculation and skippable intermediate waypoints. When two manoeuvres
+off-route recalculation and skippable intermediate waypoints. Manoeuvres name the
+road they lead onto ("Turn left onto Tagg Lane", "Roundabout, exit 2"). When two
 fall close together the banner adds a "then …" line, which is the only case a rider
 cannot react to unaided. See "Navigation architecture" below.
 
@@ -216,6 +217,20 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
   covers addresses too: a stop that cannot be geocoded stops planning and is named
   in a snackbar. `planRoute` used to substitute a point a couple of kilometres from
   the rider and route there, so a typo produced a confident-looking route to a field.
+- **Manoeuvres come from the routing service, never from geometry.** A bend and a
+  junction are the same polyline, so heading changes cannot tell them apart:
+  `generateTurnInstructions` emitted 8 manoeuvres where 4 were real on a 19 km
+  route, and one every 770 m on a curvy one, nearly all announcing that the road
+  curves. `parseInstructions` reads the service's own, which also carry the road
+  name — something no amount of geometry can supply. The geometry path survives
+  only as a fallback for the offline straight-line estimate and for an API that
+  returns none; it is not an equal alternative. The same rule applies after an
+  off-route rejoin, where `NavigationManager` stitches the two halves' service
+  instructions rather than re-deriving from the joined line.
+- **Every `ManeuverType` needs a TTS trigger distance.** The lookup in
+  `maybeSpeakInstruction` returns early on a miss, so a type added to the enum and
+  forgotten in `defaultTtsTriggerZones` is never spoken at all — silent failure on
+  the one feature used without looking at the screen. A test fails the build for it.
 - **Per-leg ride styles mean separate requests.** The routing API takes one
   `curviness` per call, so legs with different styles are routed one at a time and
   joined by `stitchLegs`. Sending only the first leg's style would be the same quiet
@@ -248,14 +263,15 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
 
 ## Testing
 
-137 JVM unit tests, no device required:
+150 JVM unit tests, no device required:
 
 | Suite | Covers |
 |---|---|
 | `NavigationUtilsTest` | snapping, cross-track distance, bearings, off-route |
 | `NavigationManagerTest` | state machine, progress, units, arrival, waypoints, the "then" rule |
 | `NavigationCameraTest` | speed→zoom curve, heading smoothing, pinch override |
-| `TurnInstructionsTest` | manoeuvre generation from geometry |
+| `TurnInstructionsTest` | the geometry fallback's manoeuvre generation |
+| `ServiceInstructionsTest` | parsing the service's manoeuvres, sign codes, TTS coverage |
 | `RouteUtilsTest` | geocoding and API response parsing |
 | `PlaceSearchTest` | place-name splitting, suggestion parsing, coordinate carry |
 | `StitchLegsTest` | joining per-leg routes: geometry, sums, weighted curvature |

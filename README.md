@@ -20,8 +20,10 @@ OpenStreetMap via osmdroid; routing comes from a separate self-hosted API
 - **Search** — find a place, see it on the map, drop it straight into the plan.
 - **Turn-by-turn navigation** — GPS tracking against the route with spoken and
   on-screen manoeuvres, live ETA, speedometer, progress, off-route recalculation
-  and skippable stops. Manoeuvres that come in quick succession get a "then …"
-  line, so a left-then-immediately-right is not a surprise.
+  and skippable stops. Instructions come from the routing service and name the road
+  they lead onto, so you are told when the road changes rather than when it bends.
+  Manoeuvres that come in quick succession get a "then …" line, so a
+  left-then-immediately-right is not a surprise.
 - **Offline maps** — predefined regions cached for riding without coverage, with a
   banner making it obvious when routing calls will fail.
 - **Light / dark / system theming**, with the map inverted in dark mode: OSM's
@@ -93,7 +95,7 @@ straight-line estimates instead of routes.
 
 ```bash
 ./gradlew assembleDebug        # build
-./gradlew testDebugUnitTest    # 137 JVM unit tests, no device needed
+./gradlew testDebugUnitTest    # 150 JVM unit tests, no device needed
 python3 scripts/contrast.py .  # colour-contrast audit (non-zero exit on a regression)
 ./gradlew installDebug         # install on a connected device/emulator
 ```

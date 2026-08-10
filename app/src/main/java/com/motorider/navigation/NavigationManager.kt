@@ -45,13 +45,30 @@ data class NavigationConfig(
     val ttsTriggerZones: Map<ManeuverType, Double> = defaultTtsTriggerZones()
 )
 
+/**
+ * How far ahead of each manoeuvre to speak it.
+ *
+ * Every [ManeuverType] must appear. A missing entry is not "announce at the
+ * default" but "never announce" — see the lookup in `maybeSpeakInstruction` — so a
+ * type added to the enum and forgotten here goes silent, which is the worst
+ * possible failure for the one feature a rider uses without looking. `TtsCoverage`
+ * in the test suite fails the build if a type is missing.
+ *
+ * Bigger manoeuvres get more warning: a roundabout needs lane choice before the
+ * approach, a slight bend needs almost none.
+ */
 fun defaultTtsTriggerZones(): Map<ManeuverType, Double> = mapOf(
     ManeuverType.DEPART to 0.0,
     ManeuverType.ARRIVE to 100.0,
     ManeuverType.WAYPOINT_ARRIVED to 100.0,
     ManeuverType.CONTINUE to 300.0,
+    ManeuverType.ROUNDABOUT to 200.0,
     ManeuverType.TURN_LEFT to 150.0,
     ManeuverType.TURN_RIGHT to 150.0,
+    ManeuverType.TURN_SHARP_LEFT to 150.0,
+    ManeuverType.TURN_SHARP_RIGHT to 150.0,
+    ManeuverType.KEEP_LEFT to 200.0,
+    ManeuverType.KEEP_RIGHT to 200.0,
     ManeuverType.TURN_SLIGHT_LEFT to 100.0,
     ManeuverType.TURN_SLIGHT_RIGHT to 100.0,
     ManeuverType.UTURN to 100.0
@@ -390,8 +407,73 @@ class NavigationManager(
             routeType = route.routeType
             avoidances = route.avoidances
             curvatureScore = route.curvatureScore
-            turnInstructions = RouteUtils.generateTurnInstructions(
+            // Both halves already carry the routing service's own manoeuvres, so
+            // stitch those rather than re-deriving from the joined geometry.
+            // Re-deriving would quietly drop the rider back to one instruction per
+            // corner for the rest of the ride, with no road names — a silent
+            // downgrade triggered by a single wrong turn.
+            turnInstructions = stitchRejoinInstructions(
+                detour = detour,
+                route = route,
+                rejoin = rejoin,
+                headSize = head.size,
+                headLengthMeters = calculateCumulativeDistances(combined)
+                    .getOrElse(head.size) { 0.0 },
+                totalDistanceMeters = (detour.distance * 1000.0) + remainderMeters,
+                totalDurationSeconds = durationMinutes * 60.0
+            ) ?: RouteUtils.generateTurnInstructions(
                 combined, waypoints, durationMinutes * 60.0
+            )
+        }
+    }
+
+    /**
+     * Join the detour's manoeuvres to the ones still ahead on the original route.
+     *
+     * Distances and geometry indices on the original route's instructions are
+     * measured from *its* start, so everything past the rejoin point is rebased onto
+     * the combined route. Returns null when either half has no service instructions,
+     * leaving the caller to fall back to geometry.
+     */
+    private fun stitchRejoinInstructions(
+        detour: Route,
+        route: Route,
+        rejoin: RejoinTarget,
+        headSize: Int,
+        headLengthMeters: Double,
+        totalDistanceMeters: Double,
+        totalDurationSeconds: Double
+    ): List<TurnInstruction>? {
+        val detourInstructions = detour.turnInstructions ?: return null
+        val routeInstructions = route.turnInstructions ?: return null
+
+        // The detour "arrives" at the rejoin point, which is not the destination.
+        val head = detourInstructions.filter {
+            it.maneuverType != ManeuverType.ARRIVE && it.segmentIndex < headSize
+        }
+
+        val tail = routeInstructions
+            .filter { it.distanceAlongRoute >= rejoin.distanceAlongRoute }
+            .map {
+                it.copy(
+                    distanceAlongRoute =
+                        headLengthMeters + (it.distanceAlongRoute - rejoin.distanceAlongRoute),
+                    segmentIndex = headSize + (it.segmentIndex - rejoin.vertexIndex)
+                )
+            }
+
+        val joined = head + tail
+        if (joined.isEmpty()) return null
+
+        // Remaining distance and time are relative to the new total, not the old one.
+        return joined.map {
+            it.copy(
+                distanceRemaining = (totalDistanceMeters - it.distanceAlongRoute)
+                    .coerceAtLeast(0.0),
+                timeRemaining = if (totalDistanceMeters > 0 && totalDurationSeconds > 0) {
+                    ((totalDistanceMeters - it.distanceAlongRoute) / totalDistanceMeters) *
+                        totalDurationSeconds
+                } else 0.0
             )
         }
     }
