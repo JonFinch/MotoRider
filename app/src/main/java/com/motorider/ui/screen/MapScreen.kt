@@ -315,18 +315,26 @@ fun MapScreen(
     val noFixMessage = stringResource(R.string.waiting_for_gps)
     fun handlePlanOutcome(outcome: PlanOutcome) {
         isPlanning = false
+
+        // Planning errors explain what to do about them, so they run to several
+        // lines — "no road a motorcycle can use near the destination, pick a nearby
+        // road or town". The 4 seconds of SnackbarDuration.Short is not enough to
+        // read that, and the rider has just been left with nothing on the map.
+        fun report(message: String) {
+            scope.launch {
+                snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Long)
+            }
+        }
+
         when (outcome) {
             is PlanOutcome.Success -> {
                 currentRoutes = outcome.routes
                 selectedRouteIndex = 0
                 routeInfoVisible = true
             }
-            is PlanOutcome.GeocodeFailed ->
-                scope.launch { snackbarHostState.showSnackbar(geocodeFailedFmt.format(outcome.label)) }
-            is PlanOutcome.RoutingFailed ->
-                scope.launch { snackbarHostState.showSnackbar(routeFailedFmt.format(outcome.message)) }
-            PlanOutcome.NoFix ->
-                scope.launch { snackbarHostState.showSnackbar(noFixMessage) }
+            is PlanOutcome.GeocodeFailed -> report(geocodeFailedFmt.format(outcome.label))
+            is PlanOutcome.RoutingFailed -> report(routeFailedFmt.format(outcome.message))
+            PlanOutcome.NoFix -> report(noFixMessage)
         }
     }
 

@@ -19,6 +19,17 @@ import java.util.ArrayList
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
+/**
+ * The routing service answered, and its answer was "no".
+ *
+ * Distinct from being unable to reach it. A straight-line estimate is an honest
+ * stand-in for a service that never replied; it is the wrong answer entirely for
+ * one that replied "there is no road a motorcycle can use near your destination",
+ * because the estimate would draw a confident line across whatever lies between —
+ * and label the failure a connectivity problem the rider might try to wait out.
+ */
+class RouteRejectedException(message: String) : Exception(message)
+
 class RouteService {
 
     companion object {
@@ -144,19 +155,23 @@ class RouteService {
                     } else {
                         val errorMsg = root.optString("message",
                             root.optString("detail", "Routing failed"))
-                        failureReason = errorMsg
                         try { android.util.Log.w("RouteService", "API routing error: $errorMsg") } catch (_: Exception) {}
+                        throw RouteRejectedException(errorMsg)
                     }
                 } else {
                     val errorDetail = try {
                         JSONObject(responseText).optString("detail", "HTTP $responseCode")
                     } catch (_: Exception) { "HTTP $responseCode" }
-                    failureReason = errorDetail
                     try { android.util.Log.w("RouteService", "API HTTP error: $errorDetail") } catch (_: Exception) {}
+                    throw RouteRejectedException(errorDetail)
                 }
             } finally {
                 conn.disconnect()
             }
+        } catch (e: RouteRejectedException) {
+            // The service spoke. Its answer reaches the rider unchanged rather than
+            // being dressed up as an offline estimate.
+            throw e
         } catch (e: Exception) {
             failureReason = e.message ?: "Routing service unreachable"
             try { android.util.Log.w("RouteService", "API routing failed, fallback to straight-line", e) } catch (_: Exception) {}

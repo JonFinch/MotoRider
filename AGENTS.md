@@ -208,6 +208,12 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
 
 ## Conventions
 
+- **A refusal is not an outage.** `RouteService` throws `RouteRejectedException`
+  when the service answers with an error, and the message reaches the rider
+  unchanged. The straight-line estimate is only for a service that never replied.
+  Conflating the two told a rider whose destination was a bridleway that the
+  routing service was unreachable, and drew a confident line across the Cambrian
+  Mountains to a place no motorcycle can legally go.
 - **Honesty about degraded results is a product requirement, not polish.** When the
   routing API is unreachable, `RouteService` returns a straight-line estimate with
   `isEstimate = true` and the UI says so loudly — a rider following an unflagged
@@ -263,7 +269,7 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
 
 ## Testing
 
-150 JVM unit tests, no device required:
+154 JVM unit tests, no device required:
 
 | Suite | Covers |
 |---|---|
@@ -276,6 +282,7 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
 | `PlaceSearchTest` | place-name splitting, suggestion parsing, coordinate carry |
 | `StitchLegsTest` | joining per-leg routes: geometry, sums, weighted curvature |
 | `RouteServiceTest`, `RouteModelTest`, `RoundTripTest` | routing and models |
+| `RouteRejectionTest` | a service refusal must not become a straight-line estimate |
 
 `testOptions { unitTests.returnDefaultValues = true }` lets classes that log be
 exercised on the JVM. `NavigationManager.clock` is injectable so time-based

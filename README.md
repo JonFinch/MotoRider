@@ -95,7 +95,7 @@ straight-line estimates instead of routes.
 
 ```bash
 ./gradlew assembleDebug        # build
-./gradlew testDebugUnitTest    # 150 JVM unit tests, no device needed
+./gradlew testDebugUnitTest    # 154 JVM unit tests, no device needed
 python3 scripts/contrast.py .  # colour-contrast audit (non-zero exit on a regression)
 ./gradlew installDebug         # install on a connected device/emulator
 ```
