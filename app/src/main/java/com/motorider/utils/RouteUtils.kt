@@ -22,11 +22,48 @@ object RouteUtils {
     // Singleton executor to avoid leaking threads on every call.
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
 
+    /**
+     * Nominatim's usage policy caps clients at one request a second and asks for a
+     * contact address in the User-Agent so an abusive client can be reached before
+     * it is blocked outright. Every call here goes through the single-threaded
+     * [executor], so holding the gap is a matter of making each request wait its
+     * turn rather than any real synchronisation.
+     */
+    private const val NOMINATIM_USER_AGENT = "MotoRider/1.0 (Android; https://github.com/motorider)"
+    private const val NOMINATIM_MIN_INTERVAL_MS = 1100L
+    private var lastNominatimRequestAt = 0L
+
+    private fun throttleNominatim() {
+        val wait = NOMINATIM_MIN_INTERVAL_MS - (System.currentTimeMillis() - lastNominatimRequestAt)
+        if (wait > 0) {
+            try {
+                Thread.sleep(wait)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+        }
+        lastNominatimRequestAt = System.currentTimeMillis()
+    }
+
+    /**
+     * A place the rider can pick, with the coordinates Nominatim already resolved.
+     *
+     * Carrying [lat]/[lon] is the point: a picked suggestion must never be geocoded
+     * a second time at routing time. Nominatim ranks by relevance, so a second
+     * lookup of the same display name can legitimately return a different place —
+     * the rider would be sent somewhere they never chose.
+     */
     data class LocationSuggestion(
         val displayName: String,
+        /** The place itself: "Snake Pass", "Hartington". */
+        val primaryName: String,
+        /** Where it is: "Derbyshire, England". Empty when there is nothing to add. */
+        val secondaryName: String,
         val lat: Double,
         val lon: Double
-    )
+    ) {
+        val point: GeoPoint get() = GeoPoint(lat, lon)
+    }
 
     interface GeocodingCallback {
         fun onResult(geoPoint: GeoPoint)
@@ -36,11 +73,12 @@ object RouteUtils {
     fun reverseGeocode(lat: Double, lon: Double, callback: (String?) -> Unit) {
         executor.execute {
             try {
+                throttleNominatim()
                 val urlObj = URL("${ApiConfig.NOMINATIM_BASE_URL}/reverse?lat=$lat&lon=$lon&format=json&zoom=18")
                 val conn = urlObj.openConnection() as HttpURLConnection
                 conn.connectTimeout = 5000
                 conn.readTimeout = 10000
-                conn.setRequestProperty("User-Agent", "MotoRider/1.0")
+                conn.setRequestProperty("User-Agent", NOMINATIM_USER_AGENT)
 
                 val response = try {
                     BufferedReader(InputStreamReader(conn.inputStream)).use { reader ->
@@ -64,17 +102,29 @@ object RouteUtils {
         }
     }
 
+    /**
+     * Place search for the location picker.
+     *
+     * The result is a [Result] rather than a bare list because "the search service
+     * could not be reached" and "there is no such place" need different words in
+     * front of the rider: one is worth retrying, the other means fix the spelling.
+     * Collapsing both into an empty list is what made the old picker feel broken
+     * whenever a tunnel took the signal.
+     */
     fun searchLocations(
         query: String,
         centerLat: Double? = null,
         centerLon: Double? = null,
-        callback: (List<LocationSuggestion>) -> Unit
+        callback: (Result<List<LocationSuggestion>>) -> Unit
     ) {
         executor.execute {
-            try {
+            val outcome = try {
+                throttleNominatim()
                 val encoded = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
-                val baseUrl = "${ApiConfig.NOMINATIM_BASE_URL}/search?q=$encoded&format=json&limit=10&addressdetails=1"
+                val baseUrl = "${ApiConfig.NOMINATIM_BASE_URL}/search?q=$encoded&format=json&limit=8&addressdetails=1"
 
+                // Bias, not restrict: results inside the box float to the top but a
+                // rider planning a trip to the far side of the country still finds it.
                 val urlStr = if (centerLat != null && centerLon != null) {
                     val viewboxMinLon = centerLon - 1.0
                     val viewboxMinLat = centerLat - 1.0
@@ -86,9 +136,11 @@ object RouteUtils {
                 val conn = URL(urlStr).openConnection() as HttpURLConnection
                 conn.connectTimeout = 5000
                 conn.readTimeout = 10000
-                conn.setRequestProperty("User-Agent", "MotoRider/1.0")
+                conn.setRequestProperty("User-Agent", NOMINATIM_USER_AGENT)
 
                 val response = try {
+                    val code = conn.responseCode
+                    if (code !in 200..299) throw java.io.IOException("HTTP $code")
                     BufferedReader(InputStreamReader(conn.inputStream)).use { reader ->
                         reader.readLines().joinToString("\n")
                     }
@@ -96,28 +148,53 @@ object RouteUtils {
                     conn.disconnect()
                 }
 
-                val results = JSONArray(response)
-                val suggestions = mutableListOf<LocationSuggestion>()
-                for (i in 0 until results.length()) {
-                    val item = results.getJSONObject(i)
-                    suggestions.add(
-                        LocationSuggestion(
-                            displayName = item.optString("display_name", "Unknown"),
-                            lat = item.getDouble("lat"),
-                            lon = item.getDouble("lon")
-                        )
-                    )
-                }
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    callback(suggestions)
-                }
+                Result.success(parseSearchResponse(response))
             } catch (e: Exception) {
                 android.util.Log.w("RouteUtils", "Location search failed: $query", e)
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    callback(emptyList())
-                }
+                Result.failure(e)
+            }
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                callback(outcome)
             }
         }
+    }
+
+    /** Split out from the network call so it can be exercised on the JVM. */
+    fun parseSearchResponse(jsonResponse: String?): List<LocationSuggestion> {
+        if (jsonResponse.isNullOrBlank()) return emptyList()
+        val results = JSONArray(jsonResponse)
+        val suggestions = mutableListOf<LocationSuggestion>()
+        for (i in 0 until results.length()) {
+            val item = results.optJSONObject(i) ?: continue
+            val displayName = item.optString("display_name", "").takeIf { it.isNotBlank() } ?: continue
+            val lat = item.optString("lat").toDoubleOrNull() ?: continue
+            val lon = item.optString("lon").toDoubleOrNull() ?: continue
+            val (primary, secondary) = splitPlaceName(displayName, item.optString("name"))
+            suggestions.add(LocationSuggestion(displayName, primary, secondary, lat, lon))
+        }
+        return suggestions
+    }
+
+    /**
+     * Nominatim's `display_name` is one long comma-separated chain — house number,
+     * street, village, district, county, region, postcode, country. Shown whole on
+     * a single ellipsised line it reads as noise, so it is split into the place and
+     * where that place is, and the tail (postcode, country) is dropped: a rider
+     * searching from Derbyshire does not need "United Kingdom" spelled out.
+     */
+    fun splitPlaceName(displayName: String, name: String? = null): Pair<String, String> {
+        val parts = displayName.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        if (parts.isEmpty()) return displayName to ""
+
+        val primary = name?.takeIf { it.isNotBlank() } ?: parts.first()
+        val rest = if (parts.firstOrNull().equals(primary, ignoreCase = true)) parts.drop(1) else parts
+        val secondary = rest
+            // Postcodes carry no meaning at a glance and eat the whole line.
+            .filterNot { it.any(Char::isDigit) && it.none(Char::isLetter) }
+            .filterNot { it.matches(Regex("[A-Z]{1,2}\\d[\\dA-Z]?\\s*\\d?[A-Z]{0,2}")) }
+            .take(3)
+            .joinToString(", ")
+        return primary to secondary
     }
 
     fun geocodeLocation(locationName: String, callback: GeocodingCallback?) {
@@ -129,13 +206,14 @@ object RouteUtils {
 
         executor.execute {
             try {
+                throttleNominatim()
                 val encoded = URLEncoder.encode(locationName, StandardCharsets.UTF_8.name())
                 val urlObj = URL("${ApiConfig.NOMINATIM_BASE_URL}/search?q=$encoded&format=json&limit=1")
 
                 val conn = urlObj.openConnection() as HttpURLConnection
                 conn.connectTimeout = 5000
                 conn.readTimeout = 10000
-                conn.setRequestProperty("User-Agent", "MotoRider/1.0")
+                conn.setRequestProperty("User-Agent", NOMINATIM_USER_AGENT)
 
                 val response = try {
                     BufferedReader(InputStreamReader(conn.inputStream)).use { reader ->

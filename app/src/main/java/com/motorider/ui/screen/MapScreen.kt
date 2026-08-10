@@ -2,14 +2,12 @@ package com.motorider.ui.screen
 
 import android.Manifest
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,26 +19,22 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -55,38 +49,76 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
 import com.motorider.R
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import com.motorider.maps.MotorcycleMapRenderer
 import com.motorider.models.Avoidance
-import com.motorider.models.ManeuverType
-import com.motorider.models.NavigationWarning
-import com.motorider.models.WarningSeverity
 import com.motorider.models.Route
 import com.motorider.models.RouteType
-import com.motorider.models.TurnInstruction
-import com.motorider.models.Waypoint
 import com.motorider.navigation.NavigationCamera
 import com.motorider.navigation.NavigationState
 import com.motorider.navigation.NavigationUIState
 import com.motorider.services.RouteService
+import com.motorider.ui.component.LocationPickerDialog
+import com.motorider.ui.component.RouteStop
+import com.motorider.ui.component.StopKind
 import com.motorider.ui.viewmodel.NavigationViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.motorider.ui.component.OsmMapView
 import com.motorider.ui.theme.*
-import com.motorider.utils.RouteUtils
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.TilesOverlay
-import java.util.concurrent.atomic.AtomicInteger
 
 enum class Screen { Plan, QuickRide, Search, OfflineMaps, Navigation }
+
+/**
+ * Keeps a half-built plan across rotation and process death, coordinates included.
+ *
+ * A hand-rolled [listSaver] rather than `@Parcelize` because the project carries no
+ * kotlin-parcelize plugin, and one saver is a smaller thing to own than a plugin.
+ */
+private val PlanDraftSaver = listSaver<PlanDraft, Any>(
+    save = { draft ->
+        buildList {
+            add(draft.via.size)
+            addAll(draft.start.toSavedFields())
+            addAll(draft.destination.toSavedFields())
+            draft.via.forEach { addAll(it.toSavedFields()) }
+        }
+    },
+    restore = { values ->
+        val viaCount = values[0] as Int
+        fun stopAt(slot: Int) = stopFromSavedFields(values.subList(1 + slot * 4, 5 + slot * 4))
+        PlanDraft(
+            start = stopAt(0),
+            destination = stopAt(1),
+            via = (0 until viaCount).map { stopAt(2 + it) }
+        )
+    }
+)
+
+private fun RouteStop.toSavedFields(): List<Any> = listOf(
+    label,
+    point?.latitude ?: Double.NaN,
+    point?.longitude ?: Double.NaN,
+    isCurrentLocation
+)
+
+private fun stopFromSavedFields(fields: List<Any>): RouteStop {
+    val lat = fields[1] as Double
+    val lon = fields[2] as Double
+    return RouteStop(
+        label = fields[0] as String,
+        point = if (lat.isNaN() || lon.isNaN()) null else GeoPoint(lat, lon),
+        isCurrentLocation = fields[3] as Boolean
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,23 +144,21 @@ fun MapScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var currentScreen by remember { mutableStateOf(Screen.Plan) }
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var routeInfoVisible by rememberSaveable { mutableStateOf(false) }
     var quickRidePanelVisible by remember { mutableStateOf(true) }
     // Lets the rider stow the planning sheet (drag its grip down / tap the peek handle)
     // to see the full map, then bring it back. Kept across config changes.
     var planPanelVisible by rememberSaveable { mutableStateOf(true) }
-    var isGeocoding by remember { mutableStateOf(false) }
+    var isPlanning by remember { mutableStateOf(false) }
 
-    var lastStartText by rememberSaveable { mutableStateOf("") }
-    var lastEndText by rememberSaveable { mutableStateOf("") }
-    var lastIntermediates by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    var planDraft by rememberSaveable(stateSaver = PlanDraftSaver) { mutableStateOf(PlanDraft()) }
     // Held at this level (not inside PlanPanel) so the rider's curvature and
     // avoidance choices survive the panel leaving composition - switching screens,
-    // or planning a route and tapping Edit to come back. Defaults to a single
-    // Direct leg.
-    var lastLegPrefs by remember { mutableStateOf<List<RouteType>>(listOf(RouteType.DIRECT)) }
-    var lastAvoidances by remember { mutableStateOf<Set<Avoidance>>(emptySet()) }
+    // or planning a route and tapping Edit to come back.
+    var legPrefs by remember { mutableStateOf<List<RouteType>>(listOf(RouteType.DIRECT)) }
+    var avoidances by remember { mutableStateOf<Set<Avoidance>>(emptySet()) }
 
     var distanceUnitMiles by rememberSaveable { mutableStateOf(true) }
 
@@ -179,7 +209,7 @@ fun MapScreen(
 
     LaunchedEffect(navError) {
         navError?.let {
-            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            snackbarHostState.showSnackbar(it)
             navigationViewModel.dismissError()
         }
     }
@@ -212,6 +242,7 @@ fun MapScreen(
     // Both permissions go in one request: from Android 12 the system ignores a
     // request for ACCESS_FINE_LOCATION that does not also ask for COARSE, so a
     // fine-only launcher never shows the rider a dialog at all.
+    val permissionDeniedMessage = stringResource(R.string.nav_permission_denied)
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
@@ -219,7 +250,7 @@ fun MapScreen(
         // Approximate location is not good enough to follow a road, so only a
         // precise grant counts as success.
         if (results[Manifest.permission.ACCESS_FINE_LOCATION] != true) {
-            Toast.makeText(context, context.getString(R.string.nav_permission_denied), Toast.LENGTH_LONG).show()
+            scope.launch { snackbarHostState.showSnackbar(permissionDeniedMessage) }
         } else {
             // Location just went through, so this is the first moment the
             // notification prompt is not competing with it.
@@ -271,23 +302,69 @@ fun MapScreen(
         currentScreen = Screen.Plan
     }
 
-    fun formatDistance(km: Double): String {
-        return if (distanceUnitMiles) "%.1f".format(km * 0.621371) + " mi"
-        else "%.1f".format(km) + " km"
+    fun startNavigation(route: Route) {
+        requestNotificationPermissionIfNeeded()
+        navigationViewModel.startNavigation(route)
+        currentScreen = Screen.Navigation
+    }
+
+    // Every planning failure the rider can act on ends up here, so none of them can
+    // be the silent no-op the old code produced when routing came back empty.
+    val geocodeFailedFmt = stringResource(R.string.geocode_failed_fmt)
+    val routeFailedFmt = stringResource(R.string.route_failed_fmt)
+    val noFixMessage = stringResource(R.string.waiting_for_gps)
+    fun handlePlanOutcome(outcome: PlanOutcome) {
+        isPlanning = false
+        when (outcome) {
+            is PlanOutcome.Success -> {
+                currentRoutes = outcome.routes
+                selectedRouteIndex = 0
+                routeInfoVisible = true
+            }
+            is PlanOutcome.GeocodeFailed ->
+                scope.launch { snackbarHostState.showSnackbar(geocodeFailedFmt.format(outcome.label)) }
+            is PlanOutcome.RoutingFailed ->
+                scope.launch { snackbarHostState.showSnackbar(routeFailedFmt.format(outcome.message)) }
+            PlanOutcome.NoFix ->
+                scope.launch { snackbarHostState.showSnackbar(noFixMessage) }
+        }
     }
 
     // While riding, draw the route navigation is actually following. After an
     // off-route detour that is no longer the route the planning screen holds, and
     // showing the old line would point the rider at a road they are not being sent
     // down.
+    val startColor = BrandBlue.toArgb()
+    val viaColor = AccentOrange.toArgb()
+    val endColor = ErrorRed.toArgb()
     LaunchedEffect(selectedRouteIndex, currentRoutes, navigating, navState.routeGeometry) {
-        val geometry = if (navigating) {
-            navState.routeGeometry
-        } else {
-            currentRoutes.getOrNull(selectedRouteIndex)?.routeGeometry
-        } ?: return@LaunchedEffect
+        val route = currentRoutes.getOrNull(selectedRouteIndex)
+        val geometry = if (navigating) navState.routeGeometry else route?.routeGeometry
+        if (geometry == null) return@LaunchedEffect
 
         mapRenderer.renderMotorcycleRoute(mapView, geometry)
+
+        // Stop markers belong to the plan, not the ride: while navigating the
+        // heading-up camera and turn banner say where to go, and dots on the line
+        // would only clutter it.
+        if (!navigating && route != null) {
+            val stops = route.waypoints
+            mapRenderer.renderWaypointMarkers(
+                mapView,
+                stops.map { it.location },
+                stops.map { it.name },
+                stops.indices.map { i ->
+                    when (i) {
+                        0 -> startColor
+                        stops.lastIndex -> endColor
+                        else -> viaColor
+                    }
+                }
+            )
+        } else {
+            mapRenderer.clearWaypointMarkers(mapView)
+        }
+
         mapView?.invalidate()
         // NavigationMapCamera owns the map once riding; framing here would fight it.
         if (!navigating) mapRenderer.frameRoute(mapView, geometry)
@@ -311,125 +388,150 @@ fun MapScreen(
         gesturesEnabled = false,
         drawerContent = {
             ModalDrawerSheet(modifier = Modifier.width(280.dp)) {
-                Spacer(Modifier.height(20.dp))
-                Text(
-                    stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = BrandBlue,
-                    modifier = Modifier
-                        .padding(horizontal = 28.dp, vertical = 8.dp)
-                        .clickable { scope.launch { drawerState.close() } }
-                )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    Spacer(Modifier.height(20.dp))
+                    Text(
+                        stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = BrandBlue,
+                        modifier = Modifier
+                            .padding(horizontal = 28.dp, vertical = 8.dp)
+                            .clickable { scope.launch { drawerState.close() } }
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                DrawerItem(Screen.Plan, stringResource(R.string.drawer_plan), Icons.Outlined.EditLocation, currentScreen) {
-                    currentScreen = it
-                    scope.launch { drawerState.close() }
-                }
-                DrawerItem(Screen.QuickRide, stringResource(R.string.drawer_quick_ride), Icons.Outlined.Refresh, currentScreen) {
-                    currentScreen = it
-                    scope.launch { drawerState.close() }
-                }
-                DrawerItem(Screen.Search, stringResource(R.string.drawer_search), Icons.Outlined.Search, currentScreen) {
-                    currentScreen = it
-                    scope.launch { drawerState.close() }
-                }
-                DrawerItem(Screen.OfflineMaps, stringResource(R.string.offline_maps), Icons.Outlined.Download, currentScreen) {
-                    currentScreen = it
-                    scope.launch { drawerState.close() }
-                }
+                    DrawerItem(Screen.Plan, stringResource(R.string.drawer_plan), Icons.Outlined.EditLocation, currentScreen) {
+                        currentScreen = it
+                        scope.launch { drawerState.close() }
+                    }
+                    DrawerItem(Screen.QuickRide, stringResource(R.string.drawer_quick_ride), Icons.Outlined.Refresh, currentScreen) {
+                        currentScreen = it
+                        scope.launch { drawerState.close() }
+                    }
+                    DrawerItem(Screen.Search, stringResource(R.string.drawer_search), Icons.Outlined.Search, currentScreen) {
+                        currentScreen = it
+                        scope.launch { drawerState.close() }
+                    }
+                    DrawerItem(Screen.OfflineMaps, stringResource(R.string.offline_maps), Icons.Outlined.Download, currentScreen) {
+                        currentScreen = it
+                        scope.launch { drawerState.close() }
+                    }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { distanceUnitMiles = !distanceUnitMiles }
-                        .padding(horizontal = 28.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Straighten, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text(stringResource(R.string.settings_distance_units), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { distanceUnitMiles = !distanceUnitMiles }
+                            .padding(horizontal = 28.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.Straighten, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(stringResource(R.string.settings_distance_units), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                                Text(
+                                    if (distanceUnitMiles) stringResource(R.string.settings_miles) else stringResource(R.string.settings_kilometres),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = distanceUnitMiles,
+                            onCheckedChange = { distanceUnitMiles = it },
+                            colors = SwitchDefaults.colors(checkedTrackColor = BrandBlue)
+                        )
+                    }
+
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Outlined.DarkMode, null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
                             Text(
-                                if (distanceUnitMiles) stringResource(R.string.settings_miles) else stringResource(R.string.settings_kilometres),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                stringResource(R.string.settings_theme),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
+                        Spacer(Modifier.height(8.dp))
+                        ThemeModeSelector(themeMode, onThemeModeChange)
                     }
-                    Switch(
-                        checked = distanceUnitMiles,
-                        onCheckedChange = { distanceUnitMiles = it },
-                        colors = SwitchDefaults.colors(checkedTrackColor = BrandBlue)
+
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        stringResource(R.string.drawer_tagline),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp)
                     )
                 }
-
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Outlined.DarkMode, null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            stringResource(R.string.settings_theme),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    ThemeModeSelector(themeMode, onThemeModeChange)
-                }
-
-                Spacer(Modifier.weight(1f))
-                Text(
-                    stringResource(R.string.drawer_tagline),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp)
-                )
             }
         }
     ) {
         Scaffold(
             topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            when (currentScreen) {
-                                Screen.Plan -> stringResource(R.string.screen_plan)
-                                Screen.QuickRide -> stringResource(R.string.screen_quick_ride)
-                                Screen.Search -> stringResource(R.string.screen_search)
-                                Screen.OfflineMaps -> stringResource(R.string.offline_maps)
-                                Screen.Navigation -> stringResource(R.string.screen_navigation)
+                // No app bar while riding. The overlay's own turn banner needs that
+                // strip of screen far more than a title and a hamburger do, and
+                // neither is something a rider taps at speed.
+                if (!navigating) {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                when (currentScreen) {
+                                    Screen.Plan -> stringResource(R.string.screen_plan)
+                                    Screen.QuickRide -> stringResource(R.string.screen_quick_ride)
+                                    Screen.Search -> stringResource(R.string.screen_search)
+                                    Screen.OfflineMaps -> stringResource(R.string.offline_maps)
+                                    Screen.Navigation -> stringResource(R.string.screen_navigation)
+                                }
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Default.Menu, stringResource(R.string.menu))
                             }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
                         )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, stringResource(R.string.menu))
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
                     )
+                }
+            },
+            snackbarHost = {
+                SnackbarHost(
+                    snackbarHostState,
+                    // Above the planning sheet, which owns the bottom of the screen.
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
         ) { innerPadding ->
-            Box(modifier = Modifier.fillMaxSize().padding(innerPadding).navigationBarsPadding()) {
+            // Scaffold's innerPadding already carries the navigation-bar inset. The
+            // navigationBarsPadding() that used to sit here applied it a second
+            // time, leaving a strip of bare map below every bottom sheet.
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                 OsmMapView(
                     modifier = Modifier.fillMaxSize(),
                     onLocationReceived = { location -> currentLocation = location },
                     onMapViewReady = { mv -> mapView = mv },
                     onMapTapped = {
-                        if (drawerState.isOpen) scope.launch { drawerState.close() }
-                        else quickRidePanelVisible = !quickRidePanelVisible
+                        // Tapping the map used to toggle a flag the current screen
+                        // did not read, so on the planning screen it did nothing at
+                        // all. Each screen now stows its own sheet to reveal the map.
+                        if (drawerState.isOpen) {
+                            scope.launch { drawerState.close() }
+                        } else when (currentScreen) {
+                            Screen.Plan -> planPanelVisible = !planPanelVisible
+                            Screen.QuickRide -> quickRidePanelVisible = !quickRidePanelVisible
+                            else -> {}
+                        }
                     },
                     onMapPinched = {
                         navigationCamera.onUserZoomGesture(android.os.SystemClock.elapsedRealtime())
@@ -472,148 +574,120 @@ fun MapScreen(
                         selectedIndex = selectedRouteIndex,
                         onSelectRoute = { selectedRouteIndex = it },
                         onBackToPlanning = { routeInfoVisible = false },
-                        formatDistance = ::formatDistance,
+                        distanceUnitMiles = distanceUnitMiles,
                         onNavigate = {
-                            val selectedRoute = currentRoutes.getOrNull(selectedRouteIndex)
-                            if (selectedRoute != null) {
-                                requestNotificationPermissionIfNeeded()
-                                navigationViewModel.startNavigation(selectedRoute)
-                                currentScreen = Screen.Navigation
-                            }
+                            currentRoutes.getOrNull(selectedRouteIndex)?.let(::startNavigation)
                         }
                     )
-                }
-
-                if (isGeocoding) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                            shadowElevation = 4.dp
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.dp,
-                                    color = BrandBlue
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text(stringResource(R.string.finding_route), fontSize = 15.sp)
-                            }
-                        }
-                    }
                 }
 
                 when (currentScreen) {
                     Screen.Plan -> {
-                    val planSlotActive = !routeInfoVisible || currentRoutes.isEmpty()
-                    AnimatedVisibility(
-                        visible = planSlotActive && planPanelVisible,
-                        enter = fadeIn() + slideInVertically(tween(300)) { it },
-                        exit = fadeOut() + slideOutVertically(tween(300)) { it },
-                        modifier = Modifier.align(Alignment.BottomCenter)
-                    ) {
-                        PlanPanel(
-                        onDismiss = { planPanelVisible = false },
-                        currentLocation = currentLocation,
-                        initialStart = lastStartText,
-                        initialEnd = lastEndText,
-                        initialIntermediates = lastIntermediates,
-                        initialLegPrefs = lastLegPrefs,
-                        initialAvoidances = lastAvoidances,
-                        isBusy = isGeocoding,
-                        onLegPrefsChange = { lastLegPrefs = it },
-                        onAvoidancesChange = { lastAvoidances = it },
-                        onPlanRoute = { start, end, intermediates, legPrefs, avoidances ->
-                            lastStartText = start
-                            lastEndText = end
-                            lastIntermediates = intermediates
-                            lastLegPrefs = legPrefs
-                            lastAvoidances = avoidances
-                            isGeocoding = true
-                             planRoute(
-                                 context, routeService, mapRenderer, mapView,
-                                 start, end, intermediates,
-                                 legPrefs.firstOrNull() ?: RouteType.DIRECT,
-                                 avoidances, currentLocation,
-                                 onRoutesReady = { routes ->
-                                     currentRoutes = routes
-                                     selectedRouteIndex = 0
-                                     routeInfoVisible = true
-                                     isGeocoding = false
-                                 },
-                                 onNavigate = { route ->
-                                     requestNotificationPermissionIfNeeded()
-                                     navigationViewModel.startNavigation(route)
-                                     currentScreen = Screen.Navigation
-                                 },
-                                 currentRoutes = currentRoutes,
-                                 selectedRouteIndex = selectedRouteIndex
-                             )
+                        val planSlotActive = !routeInfoVisible || currentRoutes.isEmpty()
+                        AnimatedVisibility(
+                            visible = planSlotActive && planPanelVisible,
+                            enter = fadeIn() + slideInVertically(tween(300)) { it },
+                            exit = fadeOut() + slideOutVertically(tween(300)) { it },
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                        ) {
+                            PlanPanel(
+                                draft = planDraft,
+                                onDraftChange = { planDraft = it },
+                                onDismiss = { planPanelVisible = false },
+                                currentLocation = currentLocation,
+                                isOffline = isOffline,
+                                legPrefs = legPrefs,
+                                avoidances = avoidances,
+                                isBusy = isPlanning,
+                                onLegPrefsChange = { legPrefs = it },
+                                onAvoidancesChange = { avoidances = it },
+                                onPlanRoute = {
+                                    isPlanning = true
+                                    planRoute(
+                                        context, routeService, planDraft, legPrefs,
+                                        avoidances, currentLocation, ::handlePlanOutcome
+                                    )
+                                }
+                            )
                         }
-                    )
+
+                        // Peek handle: appears in the same bottom slot once the sheet is
+                        // stowed, so the rider always has an obvious way to bring it back.
+                        AnimatedVisibility(
+                            visible = planSlotActive && !planPanelVisible,
+                            enter = fadeIn() + slideInVertically(tween(300)) { it },
+                            exit = fadeOut() + slideOutVertically(tween(300)) { it },
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                        ) {
+                            PlanPeekHandle(onReveal = { planPanelVisible = true })
+                        }
                     }
 
-                    // Peek handle: appears in the same bottom slot once the sheet is
-                    // stowed, so the rider always has an obvious way to bring it back.
-                    AnimatedVisibility(
-                        visible = planSlotActive && !planPanelVisible,
-                        enter = fadeIn() + slideInVertically(tween(300)) { it },
-                        exit = fadeOut() + slideOutVertically(tween(300)) { it },
-                        modifier = Modifier.align(Alignment.BottomCenter)
-                    ) {
-                        PlanPeekHandle(onReveal = { planPanelVisible = true })
-                    }
-                    }
                     Screen.QuickRide -> AnimatedVisibility(
-                        visible = quickRidePanelVisible,
+                        visible = quickRidePanelVisible && (!routeInfoVisible || currentRoutes.isEmpty()),
                         enter = fadeIn() + slideInVertically(tween(300)) { it },
                         exit = fadeOut() + slideOutVertically(tween(300)) { it },
                         modifier = Modifier.align(Alignment.BottomCenter)
                     ) {
-                         QuickRidePanel(
-                             currentLocation = currentLocation,
-                             hasRoute = currentRoutes.isNotEmpty(),
-                             distanceUnitMiles = distanceUnitMiles,
-                             onNavigate = {
-                                 val selectedRoute = currentRoutes.getOrNull(selectedRouteIndex)
-                                 if (selectedRoute != null) {
-                                    requestNotificationPermissionIfNeeded()
-                                    navigationViewModel.startNavigation(selectedRoute)
-                                    currentScreen = Screen.Navigation
+                        QuickRidePanel(
+                            currentLocation = currentLocation,
+                            distanceUnitMiles = distanceUnitMiles,
+                            isBusy = isPlanning,
+                            // Avoidances are shared with the planning sheet because
+                            // they are a constraint on what the rider can ride at
+                            // all, not a mood: a ticked "avoid ferries" means the
+                            // same thing whichever screen produced the route. Ride
+                            // style is a mood, so Quick Ride keeps its own.
+                            avoidances = avoidances,
+                            onAvoidancesChange = { avoidances = it },
+                            onGenerateRoundTrip = { dist, dir, style ->
+                                val loc = currentLocation
+                                if (loc == null) {
+                                    scope.launch { snackbarHostState.showSnackbar(noFixMessage) }
                                 } else {
-                                    Toast.makeText(context, context.getString(R.string.waiting_for_gps), Toast.LENGTH_SHORT).show()
+                                    isPlanning = true
+                                    generateRoundTrip(
+                                        context, routeService, loc, dist, dir,
+                                        style, avoidances, ::handlePlanOutcome
+                                    )
                                 }
-                            },
-                            onGenerateRoundTrip = { dist, dir ->
-                            currentLocation?.let { loc ->
-                                isGeocoding = true
-                                generateRoundTrip(
-                                    context, routeService, loc, dist, dir,
-                                    RouteType.CURVY, emptySet(),
-                                    { routes ->
-                                        currentRoutes = routes
-                                        selectedRouteIndex = 0
-                                        routeInfoVisible = true
-                                        isGeocoding = false
-                                    },
-                                    ::formatDistance
-                                )
-                            } ?: Toast.makeText(context, context.getString(R.string.waiting_for_gps), Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+
+                    Screen.Search -> SearchPanel(
+                        currentLocation = currentLocation,
+                        isOffline = isOffline,
+                        onFocusPlace = { label, point ->
+                            // Centring alone leaves the rider guessing which of the
+                            // dozen things near the middle of the screen was found.
+                            mapRenderer.renderWaypointMarkers(
+                                mapView, listOf(point), listOf(label), listOf(endColor)
+                            )
+                            mapView?.controller?.animateTo(point)
+                            mapView?.controller?.setZoom(14.0)
+                        },
+                        onUseAsStop = { stop, asDestination ->
+                            planDraft = if (asDestination) {
+                                planDraft.copy(destination = stop)
+                            } else {
+                                planDraft.copy(via = planDraft.via + stop)
+                            }
+                            planPanelVisible = true
+                            routeInfoVisible = false
+                            currentScreen = Screen.Plan
                         }
                     )
-                    }
-                    Screen.Search -> SearchPanel()
+
                     Screen.OfflineMaps -> OfflineMapManagerScreen(
                         onNavigateBack = { currentScreen = Screen.Plan }
                     )
+
                     Screen.Navigation -> NavigationScreen(
                         navigationState = navState.state,
                         distanceRemaining = navState.distanceRemaining,
                         timeRemaining = navState.timeRemaining,
+                        progress = navState.progress,
                         eta = navState.eta,
                         currentSpeed = navState.currentSpeed,
                         currentInstruction = navState.currentInstruction,
@@ -666,48 +740,49 @@ private fun DrawerItem(
     )
 }
 
-// ─── Plan Panel ─────────────────────────────────────────────────────────────
+// ─── Units ──────────────────────────────────────────────────────────────────
+
+fun formatDistanceKm(km: Double, useMiles: Boolean): String =
+    if (useMiles) "%.1f mi".format(km * 0.621371) else "%.1f km".format(km)
 
 @Composable
-private fun BoxScope.PlanPanel(
-    onDismiss: () -> Unit,
+fun formatDurationMinutes(minutes: Double): String {
+    val total = minutes.roundToInt().coerceAtLeast(0)
+    return if (total >= 60) {
+        stringResource(R.string.duration_fmt_hour_min, total / 60, total % 60)
+    } else {
+        stringResource(R.string.duration_fmt_min, total)
+    }
+}
+
+// ─── Quick Ride Panel ───────────────────────────────────────────────────────
+
+@Composable
+private fun BoxScope.QuickRidePanel(
     currentLocation: GeoPoint?,
-    initialStart: String,
-    initialEnd: String,
-    initialIntermediates: List<String>,
-    initialLegPrefs: List<RouteType>,
-    initialAvoidances: Set<Avoidance>,
+    distanceUnitMiles: Boolean,
     isBusy: Boolean,
-    onLegPrefsChange: (List<RouteType>) -> Unit,
+    avoidances: Set<Avoidance>,
     onAvoidancesChange: (Set<Avoidance>) -> Unit,
-    onPlanRoute: (String, String, List<String>, List<RouteType>, Set<Avoidance>) -> Unit
+    onGenerateRoundTrip: (Double, Int, RouteType) -> Unit
 ) {
-    val haptics = LocalHapticFeedback.current
-    var startText by remember { mutableStateOf(initialStart) }
-    var endText by remember { mutableStateOf(initialEnd) }
-    var intermediates by remember { mutableStateOf(initialIntermediates) }
-    // Seeded from the hoisted session state so previously-chosen avoidances and
-    // per-leg curvature reappear when the panel is reopened. Changes are pushed
-    // back up immediately (not just on Go) via the on*Change callbacks.
-    var selectedAvoidances by remember { mutableStateOf(initialAvoidances) }
-    var showPreferenceDialog by remember { mutableStateOf(false) }
+    val minKm = 10.0
+    val maxKm = 500.0
+    var selectedDistanceKm by rememberSaveable { mutableDoubleStateOf(30.0) }
+    var selectedDirection by rememberSaveable { mutableIntStateOf(0) }
+    // Curvy by default: nobody opens "generate me a loop for the afternoon" wanting
+    // the most efficient way back to where they already are.
+    var rideStyle by rememberSaveable { mutableStateOf(RouteType.CURVY) }
     var showAvoidanceDialog by remember { mutableStateOf(false) }
-    var editingLegIndex by remember { mutableStateOf(0) }
 
-    val legPrefs = remember {
-        mutableStateListOf<RouteType>().apply {
-            addAll(initialLegPrefs.ifEmpty { listOf(RouteType.DIRECT) })
-        }
-    }
-    LaunchedEffect(intermediates.size) {
-        val needed = 1 + intermediates.size
-        var changed = false
-        while (legPrefs.size < needed) { legPrefs.add(RouteType.DIRECT); changed = true }
-        while (legPrefs.size > needed) { legPrefs.removeAt(legPrefs.size - 1); changed = true }
-        if (changed) onLegPrefsChange(legPrefs.toList())
-    }
-
-    val canPlan = startText.isNotBlank() && endText.isNotBlank() && !isBusy
+    val unitFactor = if (distanceUnitMiles) 0.621371 else 1.0
+    val unitLabel = if (distanceUnitMiles) "mi" else "km"
+    val displayValue = selectedDistanceKm * unitFactor
+    // Both ends of the scale get converted, not just the value. The old panel
+    // converted the readout but printed the raw kilometre bounds beside it, so in
+    // miles the slider claimed a minimum of 10 while sitting at 6.
+    val displayMin = minKm * unitFactor
+    val displayMax = maxKm * unitFactor
 
     Surface(
         modifier = Modifier.align(Alignment.BottomCenter),
@@ -718,273 +793,10 @@ private fun BoxScope.PlanPanel(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 560.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 16.dp)
+                .heightIn(max = 620.dp)
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 20.dp)
         ) {
-            // Drag-handle affordance, the standard bottom-sheet grip. Dragging it down
-            // (past a small threshold) or tapping it stows the sheet; a peek handle then
-            // takes its place so it can be brought back.
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    // Wider vertical padding gives the grip a comfortable touch target.
-                    .padding(vertical = 6.dp)
-                    .pointerInput(Unit) {
-                        var dragged = 0f
-                        detectVerticalDragGestures(
-                            onDragEnd = { dragged = 0f },
-                            onDragCancel = { dragged = 0f }
-                        ) { change, dragAmount ->
-                            change.consume()
-                            dragged += dragAmount
-                            if (dragged > 48f) {
-                                onDismiss()
-                                dragged = 0f
-                            }
-                        }
-                    }
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { onDismiss() }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    Modifier
-                        .size(width = 36.dp, height = 5.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.outlineVariant)
-                )
-            }
-
-            // ── Waypoints ──
-            WaypointField(
-                icon = Icons.Default.Home, tint = BrandBlue,
-                hint = stringResource(R.string.start_location_hint), value = startText,
-                onValueChange = { startText = it },
-                bgColor = if (LocalIsDarkTheme.current) StartLocationBgDark else StartLocationBgLight,
-                currentLocation = currentLocation
-            )
-
-            intermediates.forEachIndexed { i, wp ->
-                Spacer(Modifier.height(6.dp))
-                WaypointField(
-                    icon = Icons.Default.MyLocation, tint = AccentOrange,
-                    hint = stringResource(R.string.via_point_hint, i + 1), value = wp,
-                    onValueChange = { value -> intermediates = intermediates.toMutableList().also { it[i] = value } },
-                    bgColor = if (LocalIsDarkTheme.current) ViaLocationBgDark else ViaLocationBgLight,
-                    currentLocation = currentLocation,
-                    onRemove = { intermediates = intermediates.toMutableList().also { it.removeAt(i) } }
-                )
-            }
-
-            Spacer(Modifier.height(6.dp))
-            WaypointField(
-                icon = Icons.Default.Flag, tint = ErrorRed,
-                hint = stringResource(R.string.end_location_hint), value = endText,
-                onValueChange = { endText = it },
-                bgColor = if (LocalIsDarkTheme.current) EndLocationBgDark else EndLocationBgLight,
-                currentLocation = currentLocation
-            )
-
-            Spacer(Modifier.height(4.dp))
-            TextButton(
-                onClick = { intermediates = intermediates + "" },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Icon(Icons.Default.Add, null, Modifier.size(18.dp), tint = BrandBlue)
-                Spacer(Modifier.width(4.dp))
-                Text(stringResource(R.string.add_stop), color = BrandBlue)
-            }
-
-            Spacer(Modifier.height(8.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Spacer(Modifier.height(14.dp))
-
-            // ── Ride style: one-tap inline selection, no dialog ──
-            Text(
-                stringResource(R.string.ride_style),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(6.dp))
-            val allLegsSame = legPrefs.distinct().size <= 1
-            val shownStyle = if (allLegsSame) legPrefs.firstOrNull() else null
-            RideStyleSelector(shownStyle) { style ->
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                for (i in legPrefs.indices) legPrefs[i] = style
-                onLegPrefsChange(legPrefs.toList())
-            }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                shownStyle?.let { stringResource(rideStyleDescription(it)) }
-                    ?: stringResource(R.string.mixed_leg_styles),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // Per-leg overrides only appear when the trip actually has multiple legs.
-            if (legPrefs.size > 1) {
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    legPrefs.forEachIndexed { i, pref ->
-                        LegChip(stringResource(R.string.leg_fmt, i + 1), pref) {
-                            editingLegIndex = i; showPreferenceDialog = true
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-            AvoidanceSummaryRow(selectedAvoidances) { showAvoidanceDialog = true }
-
-            Spacer(Modifier.height(16.dp))
-            Button(
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val im = intermediates.filter { it.isNotBlank() }
-                    onPlanRoute(startText, endText, im, legPrefs.toList(), selectedAvoidances)
-                },
-                enabled = canPlan,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
-            ) {
-                if (isBusy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(stringResource(R.string.finding_route), fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                } else {
-                    Icon(Icons.Outlined.Route, null, Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.find_route), fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            }
-        }
-    }
-
-    if (showPreferenceDialog) {
-        PreferenceDialog(
-            legPrefs.getOrElse(editingLegIndex) { RouteType.DIRECT },
-            onSelect = {
-                if (editingLegIndex in legPrefs.indices) legPrefs[editingLegIndex] = it
-                onLegPrefsChange(legPrefs.toList())
-                showPreferenceDialog = false
-            },
-            onDismiss = { showPreferenceDialog = false }
-        )
-    }
-    if (showAvoidanceDialog) {
-        AvoidanceDialog(
-            selectedAvoidances,
-            onUpdate = {
-                selectedAvoidances = it
-                onAvoidancesChange(it)
-                showAvoidanceDialog = false
-            },
-            onDismiss = { showAvoidanceDialog = false }
-        )
-    }
-}
-
-/**
- * Compact handle shown in the bottom slot when the planning sheet is stowed. Tapping it
- * (or dragging up) restores the full [PlanPanel]. Deliberately small so the map stays
- * almost fully visible while it's up.
- */
-@Composable
-private fun BoxScope.PlanPeekHandle(onReveal: () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .padding(bottom = 16.dp)
-            .pointerInput(Unit) {
-                var dragged = 0f
-                detectVerticalDragGestures(
-                    onDragEnd = { dragged = 0f },
-                    onDragCancel = { dragged = 0f }
-                ) { change, dragAmount ->
-                    change.consume()
-                    dragged += dragAmount
-                    if (dragged < -32f) {
-                        onReveal()
-                        dragged = 0f
-                    }
-                }
-            }
-            .clickable(onClick = onReveal),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
-        shadowElevation = 8.dp,
-        tonalElevation = 3.dp
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Default.KeyboardArrowUp,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                stringResource(R.string.show_planner),
-                fontWeight = FontWeight.Medium,
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-    }
-}
-
-// ─── Quick Ride Panel ───────────────────────────────────────────────────────
-
-@Composable
-private fun BoxScope.QuickRidePanel(
-    currentLocation: GeoPoint?,
-    hasRoute: Boolean,
-    distanceUnitMiles: Boolean,
-    onNavigate: () -> Unit,
-    onGenerateRoundTrip: (Double, Int) -> Unit
-) {
-    val maxKm = 500.0
-    var selectedDistanceKm by rememberSaveable { mutableDoubleStateOf(30.0) }
-    var selectedDirection by rememberSaveable { mutableIntStateOf(0) }
-
-    val displayValue: Double
-    val displayMax: Double
-    val unitLabel: String
-    if (distanceUnitMiles) {
-        displayValue = selectedDistanceKm * 0.621371
-        displayMax = maxKm * 0.621371
-        unitLabel = "mi"
-    } else {
-        displayValue = selectedDistanceKm
-        displayMax = maxKm
-        unitLabel = "km"
-    }
-
-    Surface(
-        modifier = Modifier.align(Alignment.BottomCenter),
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
-        shadowElevation = 12.dp,
-        tonalElevation = 3.dp
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 20.dp)) {
             Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
                 Box(
                     Modifier
@@ -993,7 +805,24 @@ private fun BoxScope.QuickRidePanel(
                         .background(MaterialTheme.colorScheme.outlineVariant)
                 )
             }
-            Text(stringResource(R.string.round_trip), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+            // Generate stays pinned below this scroll area, so the compass never
+            // pushes the only actionable control off a short screen.
+            Column(
+                Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+            ) {
+            Text(
+                stringResource(R.string.round_trip),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                stringResource(R.string.round_trip_from_here),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Spacer(Modifier.height(12.dp))
 
             Row(
@@ -1005,7 +834,7 @@ private fun BoxScope.QuickRidePanel(
                 Text(
                     "${"%.0f".format(displayValue)} $unitLabel",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
+                    style = MaterialTheme.typography.titleMedium,
                     color = AccentOrange
                 )
             }
@@ -1013,25 +842,34 @@ private fun BoxScope.QuickRidePanel(
             Slider(
                 value = selectedDistanceKm.toFloat(),
                 onValueChange = { selectedDistanceKm = it.toDouble() },
-                valueRange = 10f..maxKm.toFloat(),
-                onValueChangeFinished = {},
+                valueRange = minKm.toFloat()..maxKm.toFloat(),
                 colors = SliderDefaults.colors(
                     thumbColor = AccentOrange,
                     activeTrackColor = AccentOrange,
                     inactiveTrackColor = AccentOrange.copy(alpha = 0.2f)
-                ),
-                steps = 0
+                )
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("10", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("${"%.0f".format(displayMax)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${"%.0f".format(displayMin)} $unitLabel", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${"%.0f".format(displayMax)} $unitLabel", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Spacer(Modifier.height(16.dp))
-            Text(stringResource(R.string.direction), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(stringResource(R.string.direction), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    stringResource(R.string.direction_fmt, stringResource(compassLabel(selectedDirection))),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
             Spacer(Modifier.height(8.dp))
             CompassSelector(
                 directionDegrees = selectedDirection,
@@ -1039,278 +877,220 @@ private fun BoxScope.QuickRidePanel(
                 modifier = Modifier.fillMaxWidth().height(200.dp)
             )
 
-            Spacer(Modifier.height(12.dp))
+            // Quick Ride used to hardcode Curvy and no avoidances, so a rider who
+            // had said "avoid ferries" on the planning screen got a loop that could
+            // route them onto one. Same controls, same state, same promise.
+            Spacer(Modifier.height(16.dp))
+            Text(
+                stringResource(R.string.ride_style),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(6.dp))
+            RideStyleSelector(rideStyle) { rideStyle = it }
 
-            OutlinedButton(
-                onClick = onNavigate,
-                enabled = hasRoute,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Icon(Icons.Outlined.Route, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.start_ride), fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(12.dp))
+            AvoidanceSummaryRow(avoidances) { showAvoidanceDialog = true }
+
+            Spacer(Modifier.height(16.dp))
             }
 
-            Spacer(Modifier.height(8.dp))
-
             Button(
-                onClick = { onGenerateRoundTrip(selectedDistanceKm, selectedDirection) },
-                modifier = Modifier.fillMaxWidth(),
+                onClick = { onGenerateRoundTrip(selectedDistanceKm, selectedDirection, rideStyle) },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
-                enabled = currentLocation != null
+                enabled = currentLocation != null && !isBusy
             ) {
-                Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (currentLocation != null) stringResource(R.string.generate_fmt, "${"%.0f".format(displayValue)} $unitLabel") else stringResource(R.string.waiting_for_gps))
+                if (isBusy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(stringResource(R.string.finding_route), fontWeight = FontWeight.Bold)
+                } else {
+                    Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (currentLocation != null) {
+                            stringResource(R.string.generate_fmt, "${"%.0f".format(displayValue)} $unitLabel")
+                        } else {
+                            stringResource(R.string.waiting_for_gps)
+                        },
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
-}
 
-// ─── Search Panel ───────────────────────────────────────────────────────────
-
-@Composable
-private fun BoxScope.SearchPanel() {
-    var query by remember { mutableStateOf("") }
-
-    Surface(
-        modifier = Modifier.align(Alignment.TopCenter).padding(12.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-        shadowElevation = 6.dp
-    ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth().padding(4.dp),
-            placeholder = { Text(stringResource(R.string.search_placeholder)) },
-            leadingIcon = { Icon(Icons.Default.Search, null) },
-            singleLine = true,
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color.Transparent,
-                unfocusedBorderColor = Color.Transparent
-            )
+    if (showAvoidanceDialog) {
+        QuickRideAvoidanceDialog(
+            avoidances,
+            onUpdate = { onAvoidancesChange(it); showAvoidanceDialog = false },
+            onDismiss = { showAvoidanceDialog = false }
         )
     }
 }
 
-// ─── Reusable Components ────────────────────────────────────────────────────
-
 @Composable
-private fun WaypointField(
-    icon: ImageVector,
-    tint: androidx.compose.ui.graphics.Color,
-    hint: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    bgColor: androidx.compose.ui.graphics.Color,
-    currentLocation: GeoPoint?,
-    onRemove: (() -> Unit)? = null
+private fun QuickRideAvoidanceDialog(
+    selected: Set<Avoidance>,
+    onUpdate: (Set<Avoidance>) -> Unit,
+    onDismiss: () -> Unit
 ) {
-    val currentLocationLabel = stringResource(R.string.current_location)
-    var suggestions by remember { mutableStateOf<List<RouteUtils.LocationSuggestion>>(emptyList()) }
-    var showSuggestions by remember { mutableStateOf(false) }
-    var isSearching by remember { mutableStateOf(false) }
-    var isFocused by remember { mutableStateOf(false) }
-    var selectedValue by remember { mutableStateOf("") }
-    var hasError by remember { mutableStateOf(false) }
-    var searchJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(value) {
-        if (value == selectedValue || value.isEmpty()) {
-            isSearching = false
-            return@LaunchedEffect
-        }
-        showSuggestions = false
-        searchJob?.cancel()
-        if (value.length < 3) {
-            isSearching = false
-            return@LaunchedEffect
-        }
-        isSearching = true
-        searchJob = scope.launch {
-            delay(300)
-            RouteUtils.searchLocations(value, currentLocation?.latitude, currentLocation?.longitude) { res ->
-                suggestions = res
-                isSearching = false
-                hasError = res.isEmpty()
-                if (isFocused && value.length >= 3) {
-                    showSuggestions = res.isNotEmpty() || hasError
-                }
-            }
-        }
-    }
-
-    LaunchedEffect(isFocused) {
-        if (!isFocused) {
-            showSuggestions = false
-        } else if (value.length >= 3 && value != selectedValue && (suggestions.isNotEmpty() || hasError)) {
-            showSuggestions = true
-        }
-    }
-
-    Column {
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = bgColor
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = tint)
-                Spacer(Modifier.width(6.dp))
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { newVal ->
-                        selectedValue = ""
-                        onValueChange(newVal)
-                    },
-                    modifier = Modifier.weight(1f).onFocusChanged { isFocused = it.isFocused },
-                    placeholder = { Text(hint, fontSize = 15.sp) },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent
-                    )
-                )
-                if (value.isNotEmpty()) {
-                    IconButton(
-                        onClick = {
-                            selectedValue = ""
-                            onValueChange("")
-                            suggestions = emptyList()
-                            showSuggestions = false
-                            hasError = false
-                        },
-                        modifier = Modifier.size(48.dp)
+    var cur by remember { mutableStateOf(selected) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.avoidances_title)) },
+        text = {
+            Column {
+                Avoidance.entries.forEach { a ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { cur = if (cur.contains(a)) cur - a else cur + a }
+                            .defaultMinSize(minHeight = 48.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Clear, stringResource(R.string.clear), modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                IconButton(onClick = {
-                    currentLocation?.let {
-                        selectedValue = currentLocationLabel
-                        onValueChange(currentLocationLabel)
-                        RouteUtils.reverseGeocode(it.latitude, it.longitude) { addr ->
-                            if (addr != null) {
-                                selectedValue = addr
-                                onValueChange(addr)
-                            }
-                        }
-                    }
-                }, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Default.GpsFixed, stringResource(R.string.use_gps), modifier = Modifier.size(24.dp), tint = tint)
-                }
-                if (onRemove != null) {
-                    IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Default.Close, stringResource(R.string.remove), modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Checkbox(a in cur, { cur = if (it) cur + a else cur - a })
+                        Text(a.displayName, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
-        }
-        AnimatedVisibility(showSuggestions, enter = expandVertically(), exit = shrinkVertically()) {
-            Surface(
-                shape = RoundedCornerShape(bottomStart = 14.dp, bottomEnd = 14.dp),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 6.dp,
-                tonalElevation = 2.dp
-            ) {
-                Column {
-                    if (isSearching) {
-                        LinearProgressIndicator(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = BrandBlue,
-                            trackColor = BrandBlue.copy(alpha = 0.1f)
-                        )
-                    }
-                    if (hasError && suggestions.isEmpty() && !isSearching) {
-                        Row(
-                            Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp)
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.ErrorOutline, null, modifier = Modifier.size(16.dp), tint = ErrorRed)
-                            Spacer(Modifier.width(10.dp))
-                            Text(stringResource(R.string.no_results_found), fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                    suggestions.take(5).forEach { s ->
-                        Row(
-                            Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp).clickable {
-                                selectedValue = s.displayName
-                                onValueChange(s.displayName)
-                                showSuggestions = false
-                                isSearching = false
-                                hasError = false
-                                searchJob?.cancel()
-                            }.padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.LocationOn, null, modifier = Modifier.size(20.dp), tint = BrandBlue)
-                            Spacer(Modifier.width(10.dp))
-                            Text(s.displayName, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun rideStyleIcon(pref: RouteType): Pair<ImageVector, Color> = when (pref) {
-    RouteType.DIRECT -> Icons.Outlined.Speed to AccentOrange
-    RouteType.FAST -> Icons.Outlined.Navigation to BrandBlue
-    RouteType.CURVY -> Icons.Outlined.Timeline to BrandBlueLight
-    RouteType.EXTRA_CURVY -> Icons.Outlined.Landscape to ErrorRed
-}
-
-private fun rideStyleDescription(pref: RouteType): Int = when (pref) {
-    RouteType.DIRECT -> R.string.direct_desc
-    RouteType.FAST -> R.string.fast_desc
-    RouteType.CURVY -> R.string.curvy_desc
-    RouteType.EXTRA_CURVY -> R.string.extra_curvy_desc
-}
-
-@Composable
-private fun LegChip(label: String, pref: RouteType, onClick: () -> Unit) {
-    val (icon, color) = rideStyleIcon(pref)
-    AssistChip(
-        onClick = onClick,
-        label = { Text("$label · ${pref.shortLabel}", fontSize = 13.sp) },
-        leadingIcon = { Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = color) }
+        },
+        confirmButton = { TextButton(onClick = { onUpdate(cur) }) { Text(stringResource(R.string.done)) } },
+        dismissButton = { TextButton(onClick = { cur = emptySet() }) { Text(stringResource(R.string.clear)) } }
     )
 }
 
-/** Inline single-choice ride-style selector. Replaces the tap-open-dialog-tap-close flow. */
-@OptIn(ExperimentalMaterial3Api::class)
+private fun compassLabel(degrees: Int): Int {
+    // Nearest of the eight points the compass dial is actually labelled with.
+    val index = (((degrees % 360) + 360) % 360 + 22) / 45 % 8
+    return listOf(
+        R.string.compass_n, R.string.compass_ne, R.string.compass_e, R.string.compass_se,
+        R.string.compass_s, R.string.compass_sw, R.string.compass_w, R.string.compass_nw
+    )[index]
+}
+
+// ─── Search Panel ───────────────────────────────────────────────────────────
+
+/**
+ * Look a place up and send it straight into the plan.
+ *
+ * This screen was previously a text field wired to nothing: typing in it searched
+ * nothing and produced nothing, while the drawer advertised it as a destination.
+ * It now shares the planning sheet's picker, moves the map to whatever is found,
+ * and offers the two things a rider would want next.
+ */
 @Composable
-private fun RideStyleSelector(selected: RouteType?, onSelect: (RouteType) -> Unit) {
-    val styles = RouteType.entries
-    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-        styles.forEachIndexed { index, style ->
-            SegmentedButton(
-                selected = style == selected,
-                onClick = { onSelect(style) },
-                shape = SegmentedButtonDefaults.itemShape(index, styles.size),
-                // Suppress the default check icon so four segments fit on narrow phones.
-                icon = {},
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = BrandBlue.copy(alpha = 0.16f),
-                    activeContentColor = BrandBlue,
-                    activeBorderColor = BrandBlue
+private fun BoxScope.SearchPanel(
+    currentLocation: GeoPoint?,
+    isOffline: Boolean,
+    onFocusPlace: (label: String, point: GeoPoint) -> Unit,
+    onUseAsStop: (RouteStop, asDestination: Boolean) -> Unit
+) {
+    var found by remember { mutableStateOf<RouteStop?>(null) }
+    var pickerOpen by remember { mutableStateOf(false) }
+
+    Surface(
+        modifier = Modifier
+            .align(Alignment.TopCenter)
+            .padding(12.dp)
+            .fillMaxWidth(),
+        onClick = { pickerOpen = true },
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        shadowElevation = 6.dp
+    ) {
+        Row(
+            modifier = Modifier.defaultMinSize(minHeight = 56.dp).padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                found?.label ?: stringResource(R.string.search_placeholder),
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (found != null) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+
+    found?.let { place ->
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(12.dp)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+            shadowElevation = 8.dp
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text(
+                    place.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
-            ) {
-                Text(style.shortLabel, fontSize = 13.sp, maxLines = 1)
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = { onUseAsStop(place, true) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                ) {
+                    Icon(Icons.Default.Flag, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.search_set_as_destination), fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { onUseAsStop(place, false) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text(stringResource(R.string.search_add_as_stop), maxLines = 1)
+                    }
+                    OutlinedButton(
+                        onClick = { pickerOpen = true },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text(stringResource(R.string.search_change_place), maxLines = 1)
+                    }
+                }
             }
         }
     }
+
+    if (pickerOpen) {
+        LocationPickerDialog(
+            kind = StopKind.DESTINATION,
+            index = 0,
+            initialQuery = found?.label.orEmpty(),
+            currentLocation = currentLocation,
+            isOffline = isOffline,
+            onPick = { label, point, isCurrent ->
+                val stop = RouteStop(label = label, point = point, isCurrentLocation = isCurrent)
+                found = stop
+                point?.let { onFocusPlace(stop.label, it) }
+                pickerOpen = false
+            },
+            onDismiss = { pickerOpen = false }
+        )
+    }
 }
+
+// ─── Theme selector ─────────────────────────────────────────────────────────
 
 /** Inline Light/System/Dark selector in the drawer, same control as [RideStyleSelector]. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1334,105 +1114,10 @@ private fun ThemeModeSelector(selected: ThemeMode, onSelect: (ThemeMode) -> Unit
                     activeBorderColor = BrandBlue
                 )
             ) {
-                Text(stringResource(labelRes), fontSize = 13.sp, maxLines = 1)
+                Text(stringResource(labelRes), style = MaterialTheme.typography.labelLarge, maxLines = 1)
             }
         }
     }
-}
-
-/** Full-width row summarising selected avoidances and opening the multi-select dialog. */
-@Composable
-private fun AvoidanceSummaryRow(selected: Set<Avoidance>, onClick: () -> Unit) {
-    val summary = if (selected.isEmpty()) stringResource(R.string.avoid_none)
-                  else selected.joinToString(", ") { it.displayName }
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp).padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Outlined.Shield, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    stringResource(R.string.avoid_label),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun PreferenceDialog(current: RouteType, onSelect: (RouteType) -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.ride_style)) },
-        text = {
-            Column {
-                val prefs = listOf(
-                    RouteType.DIRECT to R.string.direct_desc,
-                    RouteType.FAST to R.string.fast_desc,
-                    RouteType.CURVY to R.string.curvy_desc,
-                    RouteType.EXTRA_CURVY to R.string.extra_curvy_desc
-                )
-                prefs.forEach { (pref, descRes) ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable { onSelect(pref) }.padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        RadioButton(pref == current, { onSelect(pref) }, colors = RadioButtonDefaults.colors(selectedColor = BrandBlue))
-                        Spacer(Modifier.width(8.dp))
-                        Column {
-                            Text(pref.displayName, fontWeight = if (pref == current) FontWeight.Bold else FontWeight.Normal)
-                            Text(stringResource(descRes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {}
-    )
-}
-
-@Composable
-private fun AvoidanceDialog(
-    selected: Set<Avoidance>,
-    onUpdate: (Set<Avoidance>) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var cur by remember { mutableStateOf(selected) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.avoidances_title)) },
-        text = {
-            Column {
-                Avoidance.entries.forEach { a ->
-                    Row(Modifier.fillMaxWidth().clickable {
-                        cur = if (cur.contains(a)) cur - a else cur + a
-                    }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(a in cur, { cur = if (it) cur + a else cur - a })
-                        Text(a.displayName)
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { onUpdate(cur) }) { Text(stringResource(R.string.done)) } },
-        dismissButton = { TextButton(onClick = { onUpdate(emptySet()); onDismiss() }) { Text(stringResource(R.string.clear)) } }
-    )
 }
 
 // ─── Route Info Card ────────────────────────────────────────────────────────
@@ -1440,7 +1125,7 @@ private fun AvoidanceDialog(
 @Composable
 private fun RouteWarningBanner(
     message: String,
-    tint: androidx.compose.ui.graphics.Color,
+    tint: Color,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -1462,10 +1147,9 @@ private fun RouteInfoCard(
     selectedIndex: Int,
     onSelectRoute: (Int) -> Unit,
     onBackToPlanning: () -> Unit,
-    formatDistance: (Double) -> String,
+    distanceUnitMiles: Boolean,
     onNavigate: () -> Unit
 ) {
-    val context = LocalContext.current
     val route = routes.getOrNull(selectedIndex) ?: return
 
     Surface(
@@ -1499,30 +1183,61 @@ private fun RouteInfoCard(
             if (!route.isEstimate && !route.curvatureAvailable) {
                 RouteWarningBanner(stringResource(R.string.curvature_unavailable_warning), AccentOrange)
             }
+
+            // Alternatives were labelled "Route 1", "Alt 2" — nothing to choose
+            // between. Each chip now states what makes that option different.
             if (routes.size > 1) {
-                Row(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    routes.forEachIndexed { i, _ ->
-                    FilterChip(
-                        selected = i == selectedIndex,
-                        onClick = { onSelectRoute(i) },
-                        label = { Text(if (i == 0) stringResource(R.string.route_1) else stringResource(R.string.alt_fmt, i + 1), fontSize = 12.sp) }
-                    )
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    routes.forEachIndexed { i, alternative ->
+                        val duration = formatDurationMinutes(alternative.duration)
+                        FilterChip(
+                            selected = i == selectedIndex,
+                            onClick = { onSelectRoute(i) },
+                            label = {
+                                Text(
+                                    "${formatDistanceKm(alternative.distance, distanceUnitMiles)} · $duration",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1
+                                )
+                            }
+                        )
                     }
                 }
             }
+
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                StatItem(Icons.Outlined.Navigation, stringResource(R.string.distance_label), formatDistance(route.distance))
-                StatItem(Icons.Outlined.Schedule, stringResource(R.string.duration_label), "${"%.0f".format(route.duration)} min")
-                StatItem(Icons.Outlined.Straighten, stringResource(R.string.curvature_label), "${"%.1f".format(route.curvatureScore)}")
-                StatItem(Icons.Outlined.Star, stringResource(R.string.score_label), "${"%.2f".format(route.routeScore)}")
+                StatItem(
+                    Icons.Outlined.Navigation,
+                    stringResource(R.string.distance_label),
+                    formatDistanceKm(route.distance, distanceUnitMiles)
+                )
+                StatItem(
+                    Icons.Outlined.Schedule,
+                    stringResource(R.string.duration_label),
+                    formatDurationMinutes(route.duration)
+                )
+                StatItem(
+                    Icons.Outlined.Timeline,
+                    stringResource(R.string.curvature_label),
+                    // No curvature data — or no real route at all — means no curves
+                    // figure. Printing "0.0" right beside a banner saying this is a
+                    // straight-line estimate invites reading it as "flat road".
+                    if (route.curvatureAvailable && !route.isEstimate) {
+                        "%.1f".format(route.curvatureScore)
+                    } else {
+                        stringResource(R.string.none_value)
+                    }
+                )
             }
             Spacer(Modifier.height(12.dp))
             Button(
-                onClick = {
-                    onNavigate()
-                },
-                modifier = Modifier.fillMaxWidth(),
+                onClick = onNavigate,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
             ) {
@@ -1539,7 +1254,7 @@ private fun StatItem(icon: ImageVector, label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = BrandBlue)
         Spacer(Modifier.height(2.dp))
-        Text(value, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Text(value, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -1552,7 +1267,8 @@ private fun CompassSelector(
 ) {
     val animatedAngle by animateFloatAsState(
         targetValue = directionDegrees.toFloat(),
-        animationSpec = tween(150)
+        animationSpec = tween(150),
+        label = "compass"
     )
 
     val compassLabels = listOf(
@@ -1591,7 +1307,6 @@ private fun CompassSelector(
                 textAlign = android.graphics.Paint.Align.CENTER
             }
 
-            // Outer ring
             drawCircle(
                 color = outerRingColor,
                 radius = radius,
@@ -1599,7 +1314,6 @@ private fun CompassSelector(
                 style = Stroke(width = 2.5.dp.toPx())
             )
 
-            // Inner ring (subtle)
             drawCircle(
                 color = innerRingColor,
                 radius = radius * 0.55f,
@@ -1607,7 +1321,6 @@ private fun CompassSelector(
                 style = Stroke(width = 1.dp.toPx())
             )
 
-            // Tick marks and labels
             compassLabels.forEach { (label, deg) ->
                 val rad = Math.toRadians(deg.toDouble())
                 val tickLen = if (deg % 90f == 0f) 14.dp.toPx() else 8.dp.toPx()
@@ -1624,7 +1337,6 @@ private fun CompassSelector(
                     strokeWidth = if (isCardinal) 2.5.dp.toPx() else 1.5.dp.toPx()
                 )
 
-                // Draw label text on canvas
                 val labelR = radius - tickLen - 16.dp.toPx()
                 val lx = center.x + labelR * sr
                 val ly = center.y - labelR * cr
@@ -1634,7 +1346,6 @@ private fun CompassSelector(
                 drawContext.canvas.nativeCanvas.drawText(label, lx, ly + labelPaint.textSize / 3f, labelPaint)
             }
 
-            // V-shaped direction indicator
             rotate(animatedAngle, center) {
                 val arrowH = radius * 0.38f
                 val arrowBaseY = center.y - radius * 0.44f
@@ -1649,126 +1360,8 @@ private fun CompassSelector(
                 drawPath(path = arrowPath, color = AccentOrange, style = Stroke(width = 2.dp.toPx()))
             }
 
-            // Center dot
             drawCircle(color = AccentOrange, radius = 5.dp.toPx(), center = center)
         }
-    }
-}
-
-// ─── Routing Functions ──────────────────────────────────────────────────────
-
-private fun generateRoundTrip(
-    context: android.content.Context, routeService: RouteService,
-    center: GeoPoint, targetDistanceKm: Double, directionDeg: Int,
-    preference: RouteType, avoidances: Set<Avoidance>,
-    onRoutesReady: (List<Route>) -> Unit, formatDistance: (Double) -> String
-) {
-    val radiusKm = targetDistanceKm / 7.0
-    val start = Waypoint(context.getString(R.string.waypoint_start), center)
-    val isCardinal = directionDeg % 90 == 0
-    val spread = if (isCardinal) 120.0 else 90.0
-    val halfSpread = spread / 2.0
-    val dir = directionDeg.toDouble()
-
-    val angles = listOf(dir - halfSpread, dir, dir + halfSpread)
-    val intermediatePoints = angles.map { angle ->
-        val rad = Math.toRadians(angle)
-        val cosLat = Math.cos(Math.toRadians(center.latitude))
-        val latOff = (radiusKm / 111.32) * Math.cos(rad)
-        val lonOff = (radiusKm / (111.32 * cosLat)) * Math.sin(rad)
-        Waypoint(context.getString(R.string.waypoint_via), GeoPoint(center.latitude + latOff, center.longitude + lonOff))
-    }
-
-    routeService.calculateRouteAsync(start, start, intermediatePoints, preference, avoidances,
-        object : RouteService.RouteCalculationCallback {
-            override fun onRouteCalculated(routes: List<Route>) {
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    onRoutesReady(routes)
-                    Toast.makeText(context, context.getString(R.string.round_trip_fmt, formatDistance(routes.firstOrNull()?.distance ?: 0.0)), Toast.LENGTH_SHORT).show()
-                }
-            }
-            override fun onError(error: String) {
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    onRoutesReady(emptyList())
-                    Toast.makeText(context, context.getString(R.string.round_trip_failed, error), Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-    )
-}
-
-private fun planRoute(
-    context: android.content.Context, routeService: RouteService, mapRenderer: MotorcycleMapRenderer, mapView: MapView?,
-    startName: String, endName: String, intermediateNames: List<String>,
-    overallPreference: RouteType, avoidances: Set<Avoidance>, currentLocation: GeoPoint?,
-    onRoutesReady: (List<Route>) -> Unit,
-    onNavigate: (Route) -> Unit,
-    currentRoutes: List<Route>,
-    selectedRouteIndex: Int
-) {
-    val allNames = mutableListOf<String>()
-    if (startName.isNotBlank()) allNames.add(startName)
-    allNames.addAll(intermediateNames.filter { it.isNotBlank() })
-    if (endName.isNotBlank()) allNames.add(endName)
-
-    if (allNames.size < 2) {
-        currentLocation?.let { loc ->
-            routeService.calculateRouteAsync(
-                Waypoint(context.getString(R.string.waypoint_start), loc), Waypoint(context.getString(R.string.waypoint_end), GeoPoint(loc.latitude + 0.01, loc.longitude + 0.01)),
-                emptyList(), overallPreference, avoidances,
-                callback(routeService, mapRenderer, mapView, onRoutesReady)
-            )
-        } ?: run { onRoutesReady(emptyList()) }
-        return
-    }
-
-    val results = mutableListOf<GeoPoint?>()
-    val pending = AtomicInteger(allNames.size)
-
-    allNames.forEachIndexed { index, name ->
-        if (name.startsWith(context.getString(R.string.current_location))) {
-            addResult(results, index, currentLocation ?: GeoPoint(51.5074, -0.1278))
-            if (pending.decrementAndGet() == 0) routeFromResults(context, routeService, mapRenderer, mapView, allNames, results.filterNotNull(), overallPreference, avoidances, onRoutesReady)
-        } else {
-            RouteUtils.geocodeLocation(name, object : RouteUtils.GeocodingCallback {
-                override fun onResult(geoPoint: GeoPoint) {
-                    addResult(results, index, geoPoint)
-                    if (pending.decrementAndGet() == 0) routeFromResults(context, routeService, mapRenderer, mapView, allNames, results.filterNotNull(), overallPreference, avoidances, onRoutesReady)
-                }
-                override fun onError(error: String) {
-                    val fallback = currentLocation ?: GeoPoint(51.5074, -0.1278)
-                    addResult(results, index, GeoPoint(fallback.latitude + (index + 1) * 0.02, fallback.longitude + (index + 1) * 0.02))
-                    if (pending.decrementAndGet() == 0) routeFromResults(context, routeService, mapRenderer, mapView, allNames, results.filterNotNull(), overallPreference, avoidances, onRoutesReady)
-                }
-            })
-        }
-    }
-}
-
-private fun addResult(results: MutableList<GeoPoint?>, index: Int, point: GeoPoint) {
-    synchronized(results) { while (results.size <= index) results.add(null); results[index] = point }
-}
-
-private fun routeFromResults(
-    context: android.content.Context, routeService: RouteService, mapRenderer: MotorcycleMapRenderer, mapView: MapView?,
-    names: List<String>, points: List<GeoPoint>, pref: RouteType, avoid: Set<Avoidance>,
-    onRoutesReady: (List<Route>) -> Unit
-) {
-    val start = Waypoint(names.first(), points.first())
-    val end = Waypoint(names.last(), points.last())
-    val im = if (points.size > 2) points.subList(1, points.lastIndex).mapIndexed { i, p -> Waypoint(names.getOrElse(i + 1) { context.getString(R.string.waypoint_via) }, p) } else emptyList()
-    routeService.calculateRouteAsync(start, end, im, pref, avoid, callback(routeService, mapRenderer, mapView, onRoutesReady))
-}
-
-private fun callback(
-    routeService: RouteService, mapRenderer: MotorcycleMapRenderer, mapView: MapView?,
-    onRoutesReady: (List<Route>) -> Unit
-): RouteService.RouteCalculationCallback = object : RouteService.RouteCalculationCallback {
-    override fun onRouteCalculated(routes: List<Route>) {
-        android.os.Handler(android.os.Looper.getMainLooper()).post { onRoutesReady(routes) }
-    }
-    override fun onError(error: String) {
-        android.os.Handler(android.os.Looper.getMainLooper()).post { onRoutesReady(emptyList()) }
     }
 }
 

@@ -21,10 +21,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.motorider.R
 import com.motorider.models.ManeuverType
 import com.motorider.models.TurnInstruction
 import com.motorider.ui.theme.BrandBlue
@@ -99,23 +101,27 @@ fun TurnBanner(
                 }
             }
 
+            // Both of these draw on top of a banner that is *already* ErrorRed when
+            // they are showing — the previous ErrorRed text was invisible against
+            // it, hiding the two states a rider most needs to see. onPrimary is the
+            // banner's own foreground colour, the same one the manoeuvre uses.
             if (isOffRoute) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "You're off route",
+                    text = stringResource(R.string.nav_off_route),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    color = ErrorRed
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             }
 
             if (isGpsLost) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "GPS signal lost",
+                    text = stringResource(R.string.nav_gps_lost),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    color = ErrorRed
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             }
         }
@@ -171,25 +177,43 @@ private fun getUrgencyColor(distanceToManeuver: Double): Color {
     }
 }
 
+/**
+ * The manoeuvre, in the rider's language.
+ *
+ * [TurnInstruction.instruction] carries an English string built in [com.motorider.utils.RouteUtils],
+ * which has no `Context` and is unit-tested on the JVM — deliberately, so the
+ * geometry stays testable. The type is the durable fact; the words for it belong
+ * here, where resources are available. The arrival cases keep the generated text
+ * because it names the actual waypoint ("Arrive at Buxton"), which no fixed string
+ * can supply.
+ */
+@Composable
 private fun getInstructionText(instruction: TurnInstruction?): String {
-    if (instruction == null) return "Navigate"
+    if (instruction == null) return stringResource(R.string.screen_navigation)
 
     return when (instruction.maneuverType) {
-        ManeuverType.DEPART -> "Start"
-        ManeuverType.CONTINUE -> "Continue"
-        ManeuverType.TURN_LEFT -> "Turn left"
-        ManeuverType.TURN_RIGHT -> "Turn right"
-        ManeuverType.TURN_SLIGHT_LEFT -> "Turn slight left"
-        ManeuverType.TURN_SLIGHT_RIGHT -> "Turn slight right"
-        ManeuverType.UTURN -> "U-turn"
-        ManeuverType.ARRIVE -> "Arrive at destination"
-        ManeuverType.WAYPOINT_ARRIVED -> "Arrive at waypoint"
+        ManeuverType.DEPART -> stringResource(R.string.waypoint_start)
+        ManeuverType.CONTINUE -> stringResource(R.string.nav_continue)
+        ManeuverType.TURN_LEFT -> stringResource(R.string.nav_turn_left)
+        ManeuverType.TURN_RIGHT -> stringResource(R.string.nav_turn_right)
+        ManeuverType.TURN_SLIGHT_LEFT -> stringResource(R.string.nav_turn_slight_left)
+        ManeuverType.TURN_SLIGHT_RIGHT -> stringResource(R.string.nav_turn_slight_right)
+        ManeuverType.UTURN -> stringResource(R.string.nav_u_turn)
+        ManeuverType.ARRIVE, ManeuverType.WAYPOINT_ARRIVED ->
+            instruction.instruction.ifBlank { stringResource(R.string.nav_arrive) }
     }
 }
 
+/**
+ * Distance to the manoeuvre, rounded the way road signs are.
+ *
+ * Metres are rounded to 10 below a kilometre: a banner counting "437 m, 431 m,
+ * 428 m" is noise on a bike, and the last digit is inside GPS error anyway.
+ */
 private fun formatDistance(distanceToManeuver: Double): String {
     return if (distanceToManeuver < 1000) {
-        "${"%.0f".format(distanceToManeuver)} m"
+        val rounded = (distanceToManeuver / 10.0).toInt() * 10
+        "$rounded m"
     } else {
         "${"%.1f".format(distanceToManeuver / 1000)} km"
     }

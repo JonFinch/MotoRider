@@ -47,9 +47,52 @@ fun routeFramingBox(points: List<GeoPoint>): BoundingBox? {
     )
 }
 
+/**
+ * A flat coloured disc with a white ring, drawn rather than loaded from a resource
+ * so the marker colour can carry meaning (blue start, orange stop, red destination)
+ * and match the stop rows in the planning sheet exactly.
+ *
+ * A disc, not a teardrop pin: a pin's point is its anchor, which is a fiddly thing
+ * to line up against a polyline, and at a glance on a moving map the colour is what
+ * the rider actually reads.
+ */
+private class DotMarkerDrawable(
+    private val fill: Int,
+    private val radiusPx: Float
+) : android.graphics.drawable.Drawable() {
+
+    private val fillPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = fill
+        style = android.graphics.Paint.Style.FILL
+    }
+    private val ringPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = radiusPx * 0.32f
+    }
+
+    override fun draw(canvas: android.graphics.Canvas) {
+        val cx = bounds.exactCenterX()
+        val cy = bounds.exactCenterY()
+        canvas.drawCircle(cx, cy, radiusPx, fillPaint)
+        canvas.drawCircle(cx, cy, radiusPx, ringPaint)
+    }
+
+    override fun getIntrinsicWidth(): Int = (radiusPx * 2.6f).toInt()
+    override fun getIntrinsicHeight(): Int = intrinsicWidth
+    override fun setAlpha(alpha: Int) { fillPaint.alpha = alpha }
+    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {
+        fillPaint.colorFilter = colorFilter
+    }
+
+    @Deprecated("Required by Drawable", ReplaceWith("android.graphics.PixelFormat.TRANSLUCENT"))
+    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+}
+
 class MotorcycleMapRenderer {
 
     private var _currentRouteLine: Polyline? = null
+    private val waypointMarkers = mutableListOf<org.osmdroid.views.overlay.Marker>()
 
     /**
      * Render a motorcycle-friendly route on the map.
@@ -76,6 +119,57 @@ class MotorcycleMapRenderer {
         mapView.overlays.add(routeLine)
         _currentRouteLine = routeLine
         mapView.invalidate()
+    }
+
+    /**
+     * Drop a marker on each stop of the planned route.
+     *
+     * Without these the planning map is a purple line with two ends and no way to
+     * tell which one the rider sets off from — a route and its reverse look
+     * identical, which matters when the whole point of the app is that the way out
+     * and the way back are different rides.
+     *
+     * @param colors one colour per point, in the same order.
+     */
+    fun renderWaypointMarkers(
+        mapView: MapView?,
+        points: List<GeoPoint>,
+        titles: List<String>,
+        colors: List<Int>
+    ) {
+        val view = mapView ?: return
+        clearWaypointMarkers(view)
+        if (points.isEmpty()) return
+
+        val radiusPx = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP, 7f, view.resources.displayMetrics
+        )
+
+        points.forEachIndexed { index, point ->
+            val marker = org.osmdroid.views.overlay.Marker(view).apply {
+                position = point
+                setAnchor(
+                    org.osmdroid.views.overlay.Marker.ANCHOR_CENTER,
+                    org.osmdroid.views.overlay.Marker.ANCHOR_CENTER
+                )
+                icon = DotMarkerDrawable(colors.getOrElse(index) { colors.lastOrNull() ?: 0 }, radiusPx)
+                title = titles.getOrNull(index)
+                // The route line is the thing being read; a marker that opens an
+                // info window on an accidental touch just covers it up.
+                setInfoWindow(null)
+            }
+            view.overlays.add(marker)
+            waypointMarkers.add(marker)
+        }
+        view.invalidate()
+    }
+
+    fun clearWaypointMarkers(mapView: MapView?) {
+        val view = mapView ?: return
+        if (waypointMarkers.isEmpty()) return
+        view.overlays.removeAll(waypointMarkers.toSet())
+        waypointMarkers.clear()
+        view.invalidate()
     }
 
     /**

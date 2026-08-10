@@ -63,11 +63,12 @@
     <string name="curvy">Curvy</string>
     <string name="extra_curvy">Extra Curvy</string>
 
-    <!-- Route preference descriptions -->
-    <string name="direct_desc">Direct \u2014 Straight and efficient</string>
-    <string name="fast_desc">Fast \u2014 Quick with some turns</string>
-    <string name="curvy_desc">Curvy \u2014 Scenic winding roads</string>
-    <string name="extra_curvy_desc">Extra Curvy \u2014 Maximum twisties</string>
+    <!-- Route preference descriptions. The name is already on the selector above
+         them, so these say only what the choice does. -->
+    <string name="direct_desc">Straight and efficient</string>
+    <string name="fast_desc">Quick, with some turns</string>
+    <string name="curvy_desc">Scenic winding roads</string>
+    <string name="extra_curvy_desc">Maximum twisties</string>
 
     <!-- Ride style -->
     <string name="ride_style">Ride Style</string>
@@ -82,6 +83,16 @@
     <string name="generate_fmt">Generate (%s)</string>
     <string name="round_trip_fmt">Round trip: %s</string>
     <string name="round_trip_failed">Failed: %s</string>
+    <string name="round_trip_from_here">A loop from wherever you are now, back to the same spot.</string>
+    <string name="direction_fmt">Heading %s</string>
+    <string name="compass_n">North</string>
+    <string name="compass_ne">North-east</string>
+    <string name="compass_e">East</string>
+    <string name="compass_se">South-east</string>
+    <string name="compass_s">South</string>
+    <string name="compass_sw">South-west</string>
+    <string name="compass_w">West</string>
+    <string name="compass_nw">North-west</string>
 
     <!-- Route info -->
     <string name="route_ready">Route Ready</string>
@@ -101,6 +112,14 @@
     <string name="none_value">N/A</string>
     <string name="no_results_found">No results found</string>
     <string name="start_navigation_label">Start Navigation</string>
+    <string name="route_option_fastest">Quickest</string>
+    <string name="route_option_curviest">Curviest</string>
+    <string name="route_option_shortest">Shortest</string>
+    <string name="route_option_fmt">Option %d</string>
+    <string name="duration_fmt_min">%d min</string>
+    <string name="duration_fmt_hour_min">%1$d h %2$d min</string>
+    <string name="curves_per_km_fmt">%s /km</string>
+    <string name="route_alternatives">Alternatives</string>
 
     <!-- Avoidances -->
     <string name="highways">Highways</string>
@@ -109,8 +128,40 @@
     <string name="unpaved_roads">Unpaved Roads</string>
     <string name="narrow_roads">Narrow Roads</string>
 
+    <!-- Location picker -->
+    <string name="location_search_hint">Search address, town or place</string>
+    <string name="use_current_location">Use my current location</string>
+    <string name="current_location_unavailable">Waiting for a GPS fix…</string>
+    <string name="location_search_idle">Type at least three characters to search.</string>
+    <string name="location_search_empty">Nothing found for “%s”. Check the spelling, or try a nearby town.</string>
+    <string name="location_search_error">Couldn\'t reach the search service.</string>
+    <string name="location_search_offline">No connection, so places can\'t be searched. Cached maps still work.</string>
+    <string name="retry">Retry</string>
+    <string name="close">Close</string>
+    <string name="stop_start">Start</string>
+    <string name="stop_destination">Destination</string>
+    <string name="stop_via_fmt">Stop %d</string>
+    <string name="stop_unset">Tap to set</string>
+    <string name="swap_start_end">Swap start and destination</string>
+    <string name="pick_start">Choose a start point</string>
+    <string name="pick_destination">Choose a destination</string>
+    <string name="pick_via_fmt">Choose stop %d</string>
+
+    <!-- Planning feedback -->
+    <string name="geocode_failed_fmt">Couldn\'t find “%s”. Pick it from the search results instead.</string>
+    <string name="route_failed_fmt">Couldn\'t plan the route: %s</string>
+    <string name="route_failed_no_route">the routing service found no route between these points</string>
+    <string name="need_start_and_end">Set a start and a destination first.</string>
+    <string name="resolving_addresses">Looking up addresses…</string>
+
     <!-- Search -->
     <string name="search_placeholder">Search for places, POIs…</string>
+    <string name="search_hint_body">Find a place, then send it straight to your route.</string>
+    <string name="search_set_as_destination">Set as destination</string>
+    <string name="search_add_as_stop">Add as stop</string>
+    <string name="search_set_as_start">Set as start</string>
+    <string name="search_result_added">Added to your route</string>
+    <string name="search_change_place">Change place</string>
 
     <!-- Messages -->
     <string name="navigation_started">Navigation started</string>

@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,14 +25,15 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -44,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -72,6 +75,8 @@ fun NavigationScreen(
     navigationState: NavigationState,
     distanceRemaining: Double,
     timeRemaining: Double,
+    /** Fraction of the route ridden, 0..1. */
+    progress: Double,
     eta: Long?,
     currentSpeed: Float,
     currentInstruction: TurnInstruction?,
@@ -115,12 +120,12 @@ fun NavigationScreen(
         return if (minutes >= 60) "${minutes / 60} h ${minutes % 60} min" else "$minutes min"
     }
 
-    if (navigationState == NavigationState.ARRIVED) {
-        ArrivedPanel(onBackToPlanning = onBackToPlanning)
-        return
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
+
+        if (navigationState == NavigationState.ARRIVED) {
+            ArrivedPanel(onBackToPlanning = onBackToPlanning)
+            return@Box
+        }
 
         // ─── Top: the next manoeuvre ─────────────────────────────────────────
         Column(
@@ -230,6 +235,22 @@ fun NavigationScreen(
                 shadowElevation = 8.dp
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
+                    // How much of the ride is behind them. NavigationManager has
+                    // always published this; nothing rendered it, so the only sense
+                    // of progress was watching a distance count down.
+                    LinearProgressIndicator(
+                        progress = { progress.toFloat().coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        gapSize = 0.dp,
+                        drawStopIndicator = {}
+                    )
+                    Spacer(Modifier.height(10.dp))
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -271,7 +292,8 @@ fun NavigationScreen(
                     ) {
                         IconButton(onClick = onToggleTts) {
                             Icon(
-                                imageVector = if (isTtsEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                                imageVector = if (isTtsEnabled) Icons.AutoMirrored.Filled.VolumeUp
+                                              else Icons.AutoMirrored.Filled.VolumeOff,
                                 contentDescription = if (isTtsEnabled) {
                                     stringResource(R.string.nav_tts_enabled)
                                 } else {
@@ -311,7 +333,11 @@ fun NavigationScreen(
                         }
 
                         Button(
-                            onClick = { onEndNavigation(); onBackToPlanning() },
+                            // Ending the ride is the only thing this does. It used
+                            // to call onBackToPlanning() as well, which in MapScreen
+                            // is the same stopNavigating() — tearing the service
+                            // down twice on one tap.
+                            onClick = onEndNavigation,
                             modifier = Modifier.weight(1f).height(46.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
@@ -329,37 +355,51 @@ fun NavigationScreen(
     }
 }
 
+/**
+ * Arrival, as a card over the map rather than a screen that replaces it.
+ *
+ * Painting an opaque surface across the whole display hid the map at the one
+ * moment a rider most wants it: they have arrived somewhere, and "where exactly
+ * am I now" is the next question. The card sits at the bottom, out of the way of
+ * the destination marker.
+ */
 @Composable
-private fun ArrivedPanel(onBackToPlanning: () -> Unit) {
-    Column(
+private fun BoxScope.ArrivedPanel(onBackToPlanning: () -> Unit) {
+    Surface(
         modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .padding(12.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        shadowElevation = 8.dp
     ) {
-        Icon(
-            Icons.Default.CheckCircle,
-            null,
-            Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            stringResource(R.string.arrived),
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(Modifier.height(20.dp))
-        Button(
-            onClick = onBackToPlanning,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp)
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(Icons.Default.Home, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.back_to_planning), fontWeight = FontWeight.Bold)
+            Icon(
+                Icons.Default.CheckCircle,
+                null,
+                Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                stringResource(R.string.arrived),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(20.dp))
+            Button(
+                onClick = onBackToPlanning,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Default.Home, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.back_to_planning), fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
