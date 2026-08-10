@@ -69,7 +69,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import com.motorider.R
-import com.motorider.ui.theme.BrandBlue
 import kotlinx.coroutines.delay
 import org.osmdroid.util.GeoPoint
 
@@ -178,7 +177,7 @@ fun StopRow(
 
 @Composable
 private fun stopIcon(kind: StopKind): Pair<ImageVector, Color> = when (kind) {
-    StopKind.START -> Icons.Default.MyLocation to BrandBlue
+    StopKind.START -> Icons.Default.MyLocation to MaterialTheme.colorScheme.primary
     StopKind.VIA -> Icons.Default.LocationOn to MaterialTheme.colorScheme.secondary
     StopKind.DESTINATION -> Icons.Default.LocationOn to MaterialTheme.colorScheme.error
 }
@@ -334,7 +333,7 @@ fun LocationPickerDialog(
                 if (currentLocation != null) {
                     PickerRow(
                         icon = Icons.Default.MyLocation,
-                        tint = BrandBlue,
+                        tint = MaterialTheme.colorScheme.primary,
                         primary = stringResource(R.string.use_current_location),
                         secondary = "",
                         onClick = {
@@ -352,8 +351,8 @@ fun LocationPickerDialog(
                 AnimatedVisibility(state is SearchUi.Searching, enter = fadeIn(), exit = fadeOut()) {
                     androidx.compose.material3.LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
-                        color = BrandBlue,
-                        trackColor = BrandBlue.copy(alpha = 0.12f)
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                     )
                 }
 

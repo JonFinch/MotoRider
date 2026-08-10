@@ -111,7 +111,33 @@ calls will fail. Custom user-drawn regions are not supported.
 
 **Theming** — light / dark / system. Dark mode applies osmdroid's `INVERT_COLORS`
 to the map: OSM's default white tiles are a genuine glare hazard on a
-handlebar-mounted phone at night.
+handlebar-mounted phone at night. See "Colour" below.
+
+## Colour
+
+The legibility bar is higher here than for a typical app: this is read on a
+handlebar-mounted phone, in direct sun or at night, at a glance. Every
+foreground/background pair the UI puts together clears WCAG AA (4.5:1) and most
+clear AAA (7:1).
+
+```bash
+python3 scripts/contrast.py .    # exits non-zero if any pair drops below AA
+```
+
+The script reads `Color.kt` and `Theme.kt` directly, so it fails on a bad palette
+edit rather than on a screenshot someone happens to look at. Run it after touching
+either file.
+
+Each brand hue carries a **ramp**, not a single value, because one colour cannot
+serve both themes: a blue dark enough to read on white is too dark on the night
+surface. The schemes pick the tone that suits their surface — light tones on top of
+dark ones in the dark scheme, and the mirror in the light scheme.
+
+Three things are deliberately *not* theme-aware, and pair with `onBrandColor`
+instead: the turn banner's urgency fills (blue "in good time", orange "getting
+close", red "now" — the colour *is* the message, and a rider learns it), and the
+start/via/destination map markers, which sit on map tiles rather than an app
+surface.
 
 ## Navigation architecture
 
@@ -185,13 +211,16 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
 - **Picked places carry their coordinates.** `RouteStop.point` is filled in when a
   search result is tapped. Re-geocoding a display name at routing time can resolve
   to a different place, because Nominatim ranks by relevance.
-- **Anything painted a fixed brand colour picks its foreground with
-  `onBrandColor`,** never `onPrimary`. The turn banner and the Find route / Generate
-  buttons are brand-coloured regardless of theme, and in the dark scheme `onPrimary`
-  is `BrandBlueDark` — that put dark-blue text on a red banner and on a blue button,
-  at night. `ButtonDefaults.buttonColors(containerColor = …)` is the trap: it leaves
-  the content colour at its default and looks correct in the light theme. Use
-  `brandButtonColors(…)`.
+- **Take colours from `MaterialTheme.colorScheme`, not from the palette file.** The
+  constants in `Color.kt` are tonal steps for the two schemes to choose between, not
+  colours to paint with. A single `BrandBlue` used in both themes was 5.75:1 on white
+  and 2.97:1 on the night surface; the fix was two tones per hue, picked by the
+  scheme. The only exceptions are the fixed fills (`Banner*`, `Marker*`), which pair
+  with `onBrandColor`.
+- **`ButtonDefaults.buttonColors(containerColor = …)` is a trap.** It replaces only
+  the container and leaves the content colour at `onPrimary`, so a button given a
+  non-primary container gets a foreground for a different background — and it looks
+  correct in the light theme, which is how it survived. Name `contentColor` too.
 - **Comments explain *why*, not *what*.** Most non-obvious code here encodes a
   platform constraint or a safety consideration; keep that reasoning with it.
 - **User-facing strings live in `strings.xml`.** No hardcoded UI text. `RouteUtils`
@@ -259,11 +288,6 @@ without it.
   connection — and place search needs one too, since Nominatim is remote.
 - Stops cannot be reordered by dragging, and there is no "pick on the map" option
   in the location picker. Both are natural next additions to `PlanPanel`.
-- The dark scheme pairs `primary` (`BrandBlueLight`) with `onPrimary`
-  (`BrandBlueDark`) at about 3.3:1 contrast — fine for large bold labels, under AA
-  for normal text. Surfaces painted a *fixed* brand colour go through
-  `onBrandColor` and are unaffected; this is the default M3 pairing, and changing it
-  means changing the palette everywhere.
 - The arrival screen shows no ride summary. `NavigationUIState` publishes only
   what remains, not totals, so that would need the ViewModel to keep them.
 - No search history or saved places, so a regular route is retyped every time.

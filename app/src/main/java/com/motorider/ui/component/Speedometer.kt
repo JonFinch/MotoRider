@@ -18,7 +18,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.motorider.ui.theme.BrandBlue
 
 /** Top of the dial. A bike will not see the far end of it, but the scale stays readable. */
 private const val MAX_DISPLAY_SPEED = 200
@@ -42,7 +41,7 @@ fun CompactSpeedometer(
         SpeedGauge(
             speed = displaySpeed.toFloat(),
             maxSpeed = MAX_DISPLAY_SPEED.toFloat(),
-            speedColor = BrandBlue,
+            speedColor = MaterialTheme.colorScheme.primary,
             modifier = Modifier.fillMaxSize()
         )
         Column(horizontalAlignment = Alignment.CenterHorizontally) {

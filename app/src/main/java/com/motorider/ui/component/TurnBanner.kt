@@ -29,10 +29,10 @@ import androidx.compose.ui.unit.sp
 import com.motorider.R
 import com.motorider.models.ManeuverType
 import com.motorider.models.TurnInstruction
-import com.motorider.ui.theme.BrandBlue
+import com.motorider.ui.theme.BannerBlue
 import com.motorider.ui.theme.onBrandColor
-import com.motorider.ui.theme.ErrorRed
-import com.motorider.ui.theme.AccentOrange
+import com.motorider.ui.theme.BannerRed
+import com.motorider.ui.theme.BannerOrange
 
 @Composable
 fun TurnBanner(
@@ -48,9 +48,9 @@ fun TurnBanner(
     modifier: Modifier = Modifier
 ) {
     val bannerColor = when {
-        isOffRoute -> ErrorRed
-        isGpsLost -> ErrorRed
-        instruction == null -> BrandBlue
+        isOffRoute -> BannerRed
+        isGpsLost -> BannerRed
+        instruction == null -> BannerBlue
         else -> getUrgencyColor(instruction.distanceToManeuver)
     }
 
@@ -151,8 +151,8 @@ fun TurnBanner(
                 }
             }
 
-            // Both of these draw on top of a banner that is *already* ErrorRed when
-            // they are showing — the previous ErrorRed text was invisible against
+            // Both of these draw on top of a banner that is *already* red when
+            // they are showing — the previous red-on-red text was invisible against
             // it, hiding the two states a rider most needs to see.
             if (isOffRoute) {
                 Spacer(Modifier.height(8.dp))
@@ -219,9 +219,9 @@ private fun DirectionArrow(
 
 private fun getUrgencyColor(distanceToManeuver: Double): Color {
     return when {
-        distanceToManeuver < 200 -> ErrorRed
-        distanceToManeuver < 500 -> AccentOrange
-        else -> BrandBlue
+        distanceToManeuver < 200 -> BannerRed
+        distanceToManeuver < 500 -> BannerOrange
+        else -> BannerBlue
     }
 }
 

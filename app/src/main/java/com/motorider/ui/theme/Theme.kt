@@ -7,15 +7,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 
+/**
+ * Each scheme picks the tone of a hue that suits its own surface — see the ramps in
+ * `Color.kt`. The pairing rule throughout is that an `onX` role must clear 4.5:1
+ * against its `X`, and a role used as a foreground (primary as a tinted icon, say)
+ * must clear 4.5:1 against `surface` too. `scripts/contrast.py` enforces both.
+ */
 private val LightScheme = lightColorScheme(
-    primary = BrandBlue,
+    primary = BlueTone40,
     onPrimary = BrandWhite,
-    primaryContainer = BrandBlueLight,
-    onPrimaryContainer = BrandBlueDark,
-    secondary = AccentOrange,
+    primaryContainer = BlueTone90,
+    onPrimaryContainer = BlueTone10,
+    secondary = OrangeTone40,
     onSecondary = BrandWhite,
-    secondaryContainer = AccentOrangeLight,
-    onSecondaryContainer = AccentOrangeDark,
+    secondaryContainer = OrangeTone90,
+    onSecondaryContainer = OrangeTone10,
     surface = SurfaceWhite,
     onSurface = OnSurfaceLight,
     surfaceVariant = SurfaceVariantLight,
@@ -23,20 +29,24 @@ private val LightScheme = lightColorScheme(
     background = SurfaceWhite,
     onBackground = OnSurfaceLight,
     outline = OutlineLight,
-    outlineVariant = Gray300,
-    error = ErrorRed,
-    onError = OnError
+    outlineVariant = OutlineVariantLight,
+    error = RedTone40,
+    onError = BrandWhite,
+    errorContainer = RedTone90,
+    onErrorContainer = RedTone10
 )
 
 private val DarkScheme = darkColorScheme(
-    primary = BrandBlueLight,
-    onPrimary = BrandBlueDark,
-    primaryContainer = BrandBlue,
-    onPrimaryContainer = BrandBlueLight,
-    secondary = AccentOrangeLight,
-    onSecondary = AccentOrangeDark,
-    secondaryContainer = AccentOrange,
-    onSecondaryContainer = AccentOrangeLight,
+    // Light tones on top, dark tones underneath — the mirror of the light scheme.
+    // Getting this backwards is what produced dark-blue text on a blue button.
+    primary = BlueTone80,
+    onPrimary = BlueTone20,
+    primaryContainer = BlueTone30,
+    onPrimaryContainer = BlueTone90,
+    secondary = OrangeTone80,
+    onSecondary = OrangeTone20,
+    secondaryContainer = OrangeTone30,
+    onSecondaryContainer = OrangeTone90,
     surface = SurfaceDark,
     onSurface = OnSurfaceDark,
     surfaceVariant = SurfaceVariantDark,
@@ -44,16 +54,17 @@ private val DarkScheme = darkColorScheme(
     background = SurfaceDark,
     onBackground = OnSurfaceDark,
     outline = OutlineDark,
-    outlineVariant = Gray800,
-    error = ErrorRed,
-    onError = OnError
+    outlineVariant = OutlineVariantDark,
+    error = RedTone80,
+    onError = RedTone20,
+    errorContainer = RedTone30,
+    onErrorContainer = RedTone90
 )
 
 // Whether the resolved (not raw-system) theme decision is dark - accounts for the
 // user's explicit Light/Dark/System override, not just isSystemInDarkTheme().
-// Composables that need to pick between a light-mode and dark-mode color variant
-// (e.g. waypoint field backgrounds) should read this rather than re-querying the
-// system setting directly.
+// Composables that need to pick between a light-mode and dark-mode variant should
+// read this rather than re-querying the system setting directly.
 val LocalIsDarkTheme = staticCompositionLocalOf { false }
 
 @Composable

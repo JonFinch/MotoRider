@@ -26,6 +26,8 @@ OpenStreetMap via osmdroid; routing comes from a separate self-hosted API
   banner making it obvious when routing calls will fail.
 - **Light / dark / system theming**, with the map inverted in dark mode: OSM's
   white tiles are a genuine glare hazard on a handlebar-mounted phone at night.
+  Every colour pairing in the app clears WCAG AA contrast and most clear AAA —
+  checked by `scripts/contrast.py`, not by eye.
 
 Degraded results are always labelled. If the routing API cannot be reached the app
 returns a straight-line estimate and says, loudly, that it is not a rideable route.
@@ -92,6 +94,7 @@ straight-line estimates instead of routes.
 ```bash
 ./gradlew assembleDebug        # build
 ./gradlew testDebugUnitTest    # 137 JVM unit tests, no device needed
+python3 scripts/contrast.py .  # colour-contrast audit (non-zero exit on a regression)
 ./gradlew installDebug         # install on a connected device/emulator
 ```
 

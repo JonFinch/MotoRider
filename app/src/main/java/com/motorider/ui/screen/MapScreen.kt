@@ -334,9 +334,9 @@ fun MapScreen(
     // off-route detour that is no longer the route the planning screen holds, and
     // showing the old line would point the rider at a road they are not being sent
     // down.
-    val startColor = BrandBlue.toArgb()
-    val viaColor = AccentOrange.toArgb()
-    val endColor = ErrorRed.toArgb()
+    val startColor = MarkerStart.toArgb()
+    val viaColor = MarkerVia.toArgb()
+    val endColor = MarkerEnd.toArgb()
     LaunchedEffect(selectedRouteIndex, currentRoutes, navigating, navState.routeGeometry) {
         val route = currentRoutes.getOrNull(selectedRouteIndex)
         val geometry = if (navigating) navState.routeGeometry else route?.routeGeometry
@@ -394,7 +394,7 @@ fun MapScreen(
                         stringResource(R.string.app_name),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = BrandBlue,
+                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
                             .padding(horizontal = 28.dp, vertical = 8.dp)
                             .clickable { scope.launch { drawerState.close() } }
@@ -443,7 +443,7 @@ fun MapScreen(
                         Switch(
                             checked = distanceUnitMiles,
                             onCheckedChange = { distanceUnitMiles = it },
-                            colors = SwitchDefaults.colors(checkedTrackColor = BrandBlue)
+                            colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary)
                         )
                     }
 
@@ -558,7 +558,7 @@ fun MapScreen(
                 ) {
                     RouteWarningBanner(
                         stringResource(R.string.offline_indicator),
-                        AccentOrange,
+                        MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.padding(top = 12.dp, start = 16.dp, end = 16.dp)
                     )
                 }
@@ -734,9 +734,9 @@ private fun DrawerItem(
         onClick = { onSelect(screen) },
         modifier = Modifier.padding(horizontal = 12.dp),
         colors = NavigationDrawerItemDefaults.colors(
-            selectedContainerColor = BrandBlue.copy(alpha = 0.1f),
-            selectedIconColor = BrandBlue,
-            selectedTextColor = BrandBlue
+            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            selectedIconColor = MaterialTheme.colorScheme.primary,
+            selectedTextColor = MaterialTheme.colorScheme.primary
         )
     )
 }
@@ -794,7 +794,10 @@ private fun BoxScope.QuickRidePanel(
     ) {
         Column(
             modifier = Modifier
-                .heightIn(max = 620.dp)
+                // Tall enough that the whole panel fits without scrolling on a
+                // normal phone: a scroll boundary landing mid-row reads as broken,
+                // and Quick Ride is a one-screen decision.
+                .heightIn(max = 680.dp)
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 20.dp)
         ) {
@@ -836,7 +839,7 @@ private fun BoxScope.QuickRidePanel(
                     "${"%.0f".format(displayValue)} $unitLabel",
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleMedium,
-                    color = AccentOrange
+                    color = MaterialTheme.colorScheme.secondary
                 )
             }
             Spacer(Modifier.height(4.dp))
@@ -845,9 +848,9 @@ private fun BoxScope.QuickRidePanel(
                 onValueChange = { selectedDistanceKm = it.toDouble() },
                 valueRange = minKm.toFloat()..maxKm.toFloat(),
                 colors = SliderDefaults.colors(
-                    thumbColor = AccentOrange,
-                    activeTrackColor = AccentOrange,
-                    inactiveTrackColor = AccentOrange.copy(alpha = 0.2f)
+                    thumbColor = MaterialTheme.colorScheme.secondary,
+                    activeTrackColor = MaterialTheme.colorScheme.secondary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f)
                 )
             )
             Row(
@@ -875,7 +878,7 @@ private fun BoxScope.QuickRidePanel(
             CompassSelector(
                 directionDegrees = selectedDirection,
                 onDirectionChanged = { selectedDirection = it },
-                modifier = Modifier.fillMaxWidth().height(200.dp)
+                modifier = Modifier.fillMaxWidth().height(170.dp)
             )
 
             // Quick Ride used to hardcode Curvy and no avoidances, so a rider who
@@ -900,7 +903,10 @@ private fun BoxScope.QuickRidePanel(
                 onClick = { onGenerateRoundTrip(selectedDistanceKm, selectedDirection, rideStyle) },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = brandButtonColors(AccentOrange),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondary,
+                    contentColor = MaterialTheme.colorScheme.onSecondary
+                ),
                 enabled = currentLocation != null && !isBusy
             ) {
                 if (isBusy) {
@@ -1046,7 +1052,6 @@ private fun BoxScope.SearchPanel(
                     onClick = { onUseAsStop(place, true) },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(14.dp),
-                    colors = brandButtonColors(BrandBlue)
                 ) {
                     Icon(Icons.Default.Flag, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
@@ -1110,9 +1115,9 @@ private fun ThemeModeSelector(selected: ThemeMode, onSelect: (ThemeMode) -> Unit
                 shape = SegmentedButtonDefaults.itemShape(index, modes.size),
                 icon = {},
                 colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = BrandBlue.copy(alpha = 0.16f),
-                    activeContentColor = BrandBlue,
-                    activeBorderColor = BrandBlue
+                    activeContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                    activeContentColor = MaterialTheme.colorScheme.primary,
+                    activeBorderColor = MaterialTheme.colorScheme.primary
                 )
             ) {
                 Text(stringResource(labelRes), style = MaterialTheme.typography.labelLarge, maxLines = 1)
@@ -1165,7 +1170,7 @@ private fun RouteInfoCard(
                     stringResource(if (route.isEstimate) R.string.route_estimate_title else R.string.route_ready),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (route.isEstimate) ErrorRed else MaterialTheme.colorScheme.onSurface
+                    color = if (route.isEstimate) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                 )
                 TextButton(onClick = onBackToPlanning) {
                     Icon(Icons.Default.Edit, null, Modifier.size(16.dp))
@@ -1175,14 +1180,14 @@ private fun RouteInfoCard(
             }
             if (route.isEstimate) {
                 // Not a real route: straight lines between waypoints. Say so loudly.
-                RouteWarningBanner(stringResource(R.string.route_estimate_warning), ErrorRed)
+                RouteWarningBanner(stringResource(R.string.route_estimate_warning), MaterialTheme.colorScheme.error)
             }
             // A real route, but with a caveat the rider needs before setting off.
             if (!route.isEstimate && !route.avoidancesHonoured) {
-                RouteWarningBanner(stringResource(R.string.avoidances_not_honoured_warning), AccentOrange)
+                RouteWarningBanner(stringResource(R.string.avoidances_not_honoured_warning), MaterialTheme.colorScheme.secondary)
             }
             if (!route.isEstimate && !route.curvatureAvailable) {
-                RouteWarningBanner(stringResource(R.string.curvature_unavailable_warning), AccentOrange)
+                RouteWarningBanner(stringResource(R.string.curvature_unavailable_warning), MaterialTheme.colorScheme.secondary)
             }
 
             // Alternatives were labelled "Route 1", "Alt 2" — nothing to choose
@@ -1240,7 +1245,6 @@ private fun RouteInfoCard(
                 onClick = onNavigate,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = brandButtonColors(BrandBlue)
             ) {
                 Icon(Icons.Outlined.Route, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
@@ -1253,7 +1257,7 @@ private fun RouteInfoCard(
 @Composable
 private fun StatItem(icon: ImageVector, label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = BrandBlue)
+        Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(2.dp))
         Text(value, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1285,6 +1289,7 @@ private fun CompassSelector(
     val minorTickColor = MaterialTheme.colorScheme.outlineVariant
     val cardinalLabelColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val minorLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+    val needleColor = MaterialTheme.colorScheme.secondary
 
     Box(
         modifier = modifier.pointerInput(Unit) {
@@ -1357,11 +1362,11 @@ private fun CompassSelector(
                     lineTo(center.x + halfW, arrowBaseY)
                     close()
                 }
-                drawPath(path = arrowPath, color = AccentOrange.copy(alpha = 0.2f))
-                drawPath(path = arrowPath, color = AccentOrange, style = Stroke(width = 2.dp.toPx()))
+                drawPath(path = arrowPath, color = needleColor.copy(alpha = 0.25f))
+                drawPath(path = arrowPath, color = needleColor, style = Stroke(width = 2.5.dp.toPx()))
             }
 
-            drawCircle(color = AccentOrange, radius = 5.dp.toPx(), center = center)
+            drawCircle(color = needleColor, radius = 5.dp.toPx(), center = center)
         }
     }
 }

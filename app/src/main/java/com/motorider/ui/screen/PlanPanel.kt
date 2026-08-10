@@ -80,11 +80,6 @@ import com.motorider.ui.component.LocationPickerDialog
 import com.motorider.ui.component.RouteStop
 import com.motorider.ui.component.StopKind
 import com.motorider.ui.component.StopRow
-import com.motorider.ui.theme.AccentOrange
-import com.motorider.ui.theme.BrandBlue
-import com.motorider.ui.theme.brandButtonColors
-import com.motorider.ui.theme.BrandBlueLight
-import com.motorider.ui.theme.ErrorRed
 import org.osmdroid.util.GeoPoint
 
 /**
@@ -219,9 +214,9 @@ fun BoxScope.PlanPanel(
                         onClick = { onDraftChange(draft.copy(via = draft.via + RouteStop())) },
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Icon(Icons.Default.Add, null, Modifier.size(18.dp), tint = BrandBlue)
+                        Icon(Icons.Default.Add, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.add_stop), color = BrandBlue)
+                        Text(stringResource(R.string.add_stop), color = MaterialTheme.colorScheme.primary)
                     }
                     // Riding a route back the other way is a different ride, and
                     // re-entering both ends to get it was the most obvious thing
@@ -301,7 +296,6 @@ fun BoxScope.PlanPanel(
                 enabled = draft.isPlannable && !isBusy,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = brandButtonColors(BrandBlue)
             ) {
                 if (isBusy) {
                     CircularProgressIndicator(
@@ -481,11 +475,17 @@ fun BoxScope.PlanPeekHandle(onReveal: () -> Unit) {
 
 // ─── Ride style and avoidances ──────────────────────────────────────────────
 
+/**
+ * Icon and tint per ride style. The tints escalate through the scheme's own roles
+ * rather than four hand-picked brand colours, so each one is a pairing the contrast
+ * audit already covers — and so they invert correctly at night.
+ */
+@Composable
 fun rideStyleIcon(pref: RouteType): Pair<ImageVector, Color> = when (pref) {
-    RouteType.DIRECT -> Icons.Outlined.Speed to AccentOrange
-    RouteType.FAST -> Icons.Outlined.Navigation to BrandBlue
-    RouteType.CURVY -> Icons.Outlined.Timeline to BrandBlueLight
-    RouteType.EXTRA_CURVY -> Icons.Outlined.Landscape to ErrorRed
+    RouteType.DIRECT -> Icons.Outlined.Speed to MaterialTheme.colorScheme.onSurfaceVariant
+    RouteType.FAST -> Icons.Outlined.Navigation to MaterialTheme.colorScheme.primary
+    RouteType.CURVY -> Icons.Outlined.Timeline to MaterialTheme.colorScheme.secondary
+    RouteType.EXTRA_CURVY -> Icons.Outlined.Landscape to MaterialTheme.colorScheme.error
 }
 
 fun rideStyleDescription(pref: RouteType): Int = when (pref) {
@@ -521,9 +521,9 @@ fun RideStyleSelector(selected: RouteType?, onSelect: (RouteType) -> Unit) {
                 // Suppress the default check icon so four segments fit on narrow phones.
                 icon = {},
                 colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = BrandBlue.copy(alpha = 0.16f),
-                    activeContentColor = BrandBlue,
-                    activeBorderColor = BrandBlue
+                    activeContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                    activeContentColor = MaterialTheme.colorScheme.primary,
+                    activeBorderColor = MaterialTheme.colorScheme.primary
                 )
             ) {
                 Text(style.shortLabel, style = MaterialTheme.typography.labelLarge, maxLines = 1)
@@ -583,7 +583,7 @@ private fun PreferenceDialog(current: RouteType, onSelect: (RouteType) -> Unit, 
                         RadioButton(
                             pref == current,
                             { onSelect(pref) },
-                            colors = RadioButtonDefaults.colors(selectedColor = BrandBlue)
+                            colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
                         )
                         Spacer(Modifier.width(8.dp))
                         Column {
