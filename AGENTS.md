@@ -121,13 +121,20 @@ Peak & Lake District, Scottish Highlands) downloaded into osmdroid's tile cache 
 riding without coverage, with a connectivity banner making it obvious when routing
 calls will fail. Custom user-drawn regions are not supported.
 
-**The rider's position** — a motorcycle seen from above, rotated by the direction of
-travel. `MyLocationNewOverlay` turns its "direction arrow" bitmap by the bearing on
-the `Location` it is given, so `NavigationService` stamps the resolved bearing onto
-the fix it publishes rather than only carrying it alongside in `LocationResult`.
-The same bitmap is set for both the direction and "person" slots: osmdroid swaps to
-the latter whenever a fix arrives without a bearing, and a marker that changes shape
-at every set of lights is worse than one that simply stops turning.
+**The rider's position** — a motorcycle seen from above, held upright on screen
+while the *map* turns beneath it, so the way ahead is always out in front. The bike
+points up because up is the direction of travel.
+
+`MyLocationNewOverlay` picks between two behaviours by whether the fix carries a
+bearing: with one it turns the icon to that heading, without one it counter-rotates
+by the map's orientation and holds the icon upright. The second is what this app
+wants, so `uprightFix` in `OsmMapView` strips the bearing from every fix reaching
+the overlay. Letting it rotate as well fights the heading-up camera — the two
+rotations very nearly cancel, and the bike wobbles about vertical as the camera's
+smoothing lags the raw course.
+
+The heading is not lost by that: it travels in `LocationResult.bearing`, which is
+what turns the camera.
 
 **Theming** — light / dark / system. Dark mode applies osmdroid's `INVERT_COLORS`
 to the map: OSM's default white tiles are a genuine glare hazard on a
@@ -263,7 +270,10 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
   instructions rather than re-deriving from the joined line.
 - **A missing bearing is not north.** `bearingForFix` prefers the receiver's course
   while the fix is actually moving, falls back to the heading implied by movement
-  since the last fix, and otherwise holds the last known value. The code here used
+  since the last fix, and otherwise holds the last known value. That last fallback
+  must beat a reported-but-untrusted bearing, not the other way round: a receiver
+  reporting 0.0 while stopped otherwise resets the heading between every pair of
+  moving fixes, and the map flicks back to north-up at every standstill. The code here used
   to substitute `0f` whenever the GPS withheld a bearing, which swung the heading-up
   map to north and span the rider's marker to face it every time they slowed. Note
   the Android emulator reports a course of exactly 0 on every synthetic fix, so
@@ -305,7 +315,7 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
 
 ## Testing
 
-161 JVM unit tests, no device required:
+163 JVM unit tests, no device required:
 
 | Suite | Covers |
 |---|---|

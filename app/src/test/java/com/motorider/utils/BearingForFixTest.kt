@@ -82,6 +82,29 @@ class BearingForFixTest {
     }
 
     @Test
+    fun `an untrusted reported bearing never beats the held heading`() {
+        // A receiver that sits at 0.0 while stopped — the Android emulator does
+        // exactly this — must not reset the heading to north between two moving
+        // fixes. Holding 114 is right; returning the reported 0 flicks the map
+        // back to north-up at every standstill.
+        val bearing = bearingForFix(
+            reported = 0f, speedMps = 0f,
+            previous = base, current = offset(1.0, 1.0), lastKnown = 114f
+        )
+
+        assertEquals(114f, bearing!!, 0.001f)
+    }
+
+    @Test
+    fun `a reported bearing is still used when there is no history at all`() {
+        val bearing = bearingForFix(
+            reported = 0f, speedMps = 0f, previous = null, current = base, lastKnown = null
+        )
+
+        assertEquals(0f, bearing!!, 0.001f)
+    }
+
+    @Test
     fun `a southward leg reads as south`() {
         val bearing = bearingForFix(
             reported = null, speedMps = 0f, previous = base, current = offset(-80.0, 0.0), lastKnown = null

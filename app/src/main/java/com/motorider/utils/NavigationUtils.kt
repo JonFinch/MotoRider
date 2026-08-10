@@ -371,5 +371,9 @@ fun bearingForFix(
     if (previous != null && previous.distanceToMeters(current) >= MIN_BEARING_DERIVATION_METERS) {
         return calculateBearing(previous, current).toFloat()
     }
-    return reported ?: lastKnown
+    // The held heading beats a reported one that has already been judged
+    // untrustworthy. Preferring `reported` here undid the whole point: a receiver
+    // sitting at 0.0 while stopped reset the heading to north between every pair of
+    // moving fixes, so the map flicked back to north-up at every standstill.
+    return lastKnown ?: reported
 }

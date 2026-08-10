@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import androidx.core.graphics.createBitmap
 import android.location.Location
+import android.location.LocationManager
 import android.os.Looper
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -37,7 +38,7 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
  * guidance; this relays its fixes instead of opening a second one purely to keep
  * the blue dot moving — pure battery cost for no extra accuracy on a ride.
  */
-private class RelayLocationProvider(context: Context) : IMyLocationProvider {
+private class RelayLocationProvider(context: Context) : IMyLocationProvider, IMyLocationConsumer {
     private val gpsProvider = GpsMyLocationProvider(context)
     private var consumer: IMyLocationConsumer? = null
     private var started = false
@@ -47,7 +48,16 @@ private class RelayLocationProvider(context: Context) : IMyLocationProvider {
     override fun startLocationProvider(myLocationConsumer: IMyLocationConsumer?): Boolean {
         consumer = myLocationConsumer
         started = true
-        return if (navigating) true else gpsProvider.startLocationProvider(myLocationConsumer)
+        // Subscribe as the consumer ourselves rather than handing the overlay
+        // straight to the GPS provider, so every fix reaching the overlay goes
+        // through [emit] and gets the same treatment whether it came from here or
+        // was relayed from NavigationService.
+        return if (navigating) true else gpsProvider.startLocationProvider(this)
+    }
+
+    /** Fixes from the internal GPS provider, when not navigating. */
+    override fun onLocationChanged(location: Location?, source: IMyLocationProvider?) {
+        location?.let { emit(it) }
     }
 
     override fun stopLocationProvider() {
@@ -56,7 +66,7 @@ private class RelayLocationProvider(context: Context) : IMyLocationProvider {
     }
 
     override fun getLastKnownLocation(): Location? =
-        if (navigating) lastPushed else gpsProvider.lastKnownLocation
+        (if (navigating) lastPushed else gpsProvider.lastKnownLocation)?.let(::uprightFix)
 
     override fun destroy() {
         gpsProvider.destroy()
@@ -65,18 +75,22 @@ private class RelayLocationProvider(context: Context) : IMyLocationProvider {
     /** Fed a fix relayed from NavigationService; ignored unless currently navigating. */
     fun push(location: Location) {
         lastPushed = location
-        if (navigating && started) consumer?.onLocationChanged(location, this)
+        if (navigating && started) emit(location)
+    }
+
+    private fun emit(location: Location) {
+        consumer?.onLocationChanged(uprightFix(location), this)
     }
 
     fun setNavigating(isNavigating: Boolean) {
         if (navigating == isNavigating) return
         navigating = isNavigating
-        val c = consumer ?: return
+        consumer ?: return
         if (!started) return
         if (isNavigating) {
             gpsProvider.stopLocationProvider()
         } else {
-            gpsProvider.startLocationProvider(c)
+            gpsProvider.startLocationProvider(this)
         }
     }
 }
@@ -98,6 +112,31 @@ private fun Context.motorcycleMarkerBitmap(): Bitmap {
     drawable.draw(canvas)
     return bitmap
 }
+
+/**
+ * The same fix with its bearing removed.
+ *
+ * `MyLocationNewOverlay` turns the marker by the bearing on the fix, which points
+ * the bike along the true heading on a map that is itself already turned heading-up
+ * — the two rotations fight, and the bike wobbles about vertical as the camera's
+ * smoothing lags the raw course. Without a bearing the overlay takes its other
+ * path, which counter-rotates the icon by the map's orientation and so holds it
+ * upright on screen at all times.
+ *
+ * That is the behaviour wanted: the map turns so the way ahead is up, and the bike
+ * points up because up *is* the way ahead. The heading itself is not lost — it is
+ * carried in `LocationResult.bearing`, which is what turns the camera.
+ */
+private fun uprightFix(fix: Location): Location =
+    Location(fix.provider ?: LocationManager.GPS_PROVIDER).apply {
+        latitude = fix.latitude
+        longitude = fix.longitude
+        time = fix.time
+        elapsedRealtimeNanos = fix.elapsedRealtimeNanos
+        if (fix.hasAccuracy()) accuracy = fix.accuracy
+        if (fix.hasSpeed()) speed = fix.speed
+        if (fix.hasAltitude()) altitude = fix.altitude
+    }
 
 @Composable
 fun OsmMapView(
@@ -140,10 +179,10 @@ fun OsmMapView(
     val locationOverlay = remember {
         MyLocationNewOverlay(relayProvider, mapView).apply {
             // A motorcycle from above rather than osmdroid's default dot-and-arrow.
-            // The same bitmap serves both states on purpose: osmdroid swaps to the
-            // "person" icon whenever a fix arrives without a bearing, which happens
-            // every time the rider stops, and a marker that changes shape at every
-            // set of lights is worse than one that simply stops turning.
+            // Both slots get the same bitmap because [uprightFix] strips the bearing
+            // from every fix, so the overlay always takes its upright path — but
+            // setting only one would leave the other as osmdroid's default man if
+            // that ever changed.
             val bike = context.motorcycleMarkerBitmap()
             setDirectionArrow(bike, bike)
             enableMyLocation()

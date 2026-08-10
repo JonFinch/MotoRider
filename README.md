@@ -21,8 +21,9 @@ OpenStreetMap via osmdroid; routing comes from a separate self-hosted API
 - **Search** — find a place, see it on the map, drop it straight into the plan.
 - **Turn-by-turn navigation** — GPS tracking against the route with spoken and
   on-screen manoeuvres, live ETA, speedometer, progress, off-route recalculation
-  and skippable stops. The rider is drawn as a motorcycle from above, turned to the
-  direction of travel, and the road already ridden is duller than the road ahead.
+  and skippable stops. The map turns so the way ahead is always up the screen, with
+  the rider drawn as a motorcycle from above, and the road already ridden is duller
+  than the road ahead.
   Instructions come from the routing service and name the road
   they lead onto, so you are told when the road changes rather than when it bends.
   Manoeuvres that come in quick succession get a "then …" line, so a
@@ -98,7 +99,7 @@ straight-line estimates instead of routes.
 
 ```bash
 ./gradlew assembleDebug        # build
-./gradlew testDebugUnitTest    # 161 JVM unit tests, no device needed
+./gradlew testDebugUnitTest    # 163 JVM unit tests, no device needed
 python3 scripts/contrast.py .  # colour-contrast audit (non-zero exit on a regression)
 ./gradlew installDebug         # install on a connected device/emulator
 ```
