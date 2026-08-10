@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launcher icon for API 24-25, which predate adaptive icons. The project shipped
+  only mipmap-anydpi-v26, so on Android 7 there was no icon resource to resolve.
+  Composes the same background and foreground into one drawable.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/ic_launcher_background" />
+    <item android:drawable="@drawable/ic_launcher_foreground" />
+</layer-list>

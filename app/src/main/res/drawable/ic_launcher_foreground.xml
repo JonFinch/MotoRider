@@ -1,48 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Mountains with a motorcycle in front of them.
+
+  Everything sits inside a circle of radius 33 centred on (54,54). That is the only
+  part of a 108x108 adaptive icon guaranteed to survive every launcher's mask — the
+  previous foreground ran a road to y=108 and put a sun at (78,25), both of which
+  are clipped on a circular mask. Nothing here goes past 32 units from centre.
+
+  White peaks on the dark blue background do the reading at small sizes; the bike is
+  drawn in the same dark blue as the sky so it reads as a silhouette against the
+  snow rather than competing with it.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Mountain back peak -->
+
+    <!-- Far range, held back so the near one reads as in front -->
+    <path
+        android:fillColor="#7FB6E8"
+        android:pathData="M25,66 L41,41 L57,66 Z" />
+
+    <!-- Near range -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M47,66 L66,34 L84,66 Z" />
+
+    <!-- Snow line on the near peak, a notch of sky showing the ridge -->
     <path
         android:fillColor="#1565C0"
-        android:pathData="M10,75L40,30L70,75Z" />
-    <!-- Mountain front peak -->
+        android:pathData="M66,34 L60,44 L63.5,42.5 L66,45 L68.5,42.5 L72,44 Z" />
+
+    <!-- Ground the bike stands on, tying the two ranges together -->
     <path
-        android:fillColor="#0D47A1"
-        android:pathData="M35,80L65,35L95,80Z" />
-    <!-- Road - wide base -->
+        android:fillColor="#0B2545"
+        android:pathData="M24,66 L84,66 L84,69 L24,69 Z" />
+
+    <!-- Wheels, as rings so they read as wheels and not blobs -->
     <path
-        android:fillColor="#ECEFF1"
-        android:pathData="M50,108L48,95C47,88 46,82 47,76C48,70 50,66 53,62C56,58 58,54 58,48C58,42 57,36 56,30L60,30C61,36 62,42 62,48C62,54 60,58 57,62C54,66 52,70 51,76C50,82 51,88 52,95L54,108Z" />
-    <!-- Road dashes - manual segments -->
+        android:fillColor="#0B2545"
+        android:pathData="M38,74 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 Z
+                          M38,74 m-4.5,0 a4.5,4.5 0 1,1 9,0 a4.5,4.5 0 1,1 -9,0 Z" />
     <path
-        android:fillColor="#FF6F00"
-        android:pathData="M51,105L51,100L52,100L52,105Z" />
+        android:fillColor="#0B2545"
+        android:pathData="M70,74 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 Z
+                          M70,74 m-4.5,0 a4.5,4.5 0 1,1 9,0 a4.5,4.5 0 1,1 -9,0 Z" />
+
+    <!-- Tank and seat as one mass, with the dip between them that says motorcycle
+         rather than bicycle. Drawn as a filled shape: overlapping thick strokes
+         merged into a single blob at icon size. -->
     <path
-        android:fillColor="#FF6F00"
-        android:pathData="M50,95L50,90L51,90L51,95Z" />
+        android:fillColor="#0B2545"
+        android:pathData="M41,69 L45,60 L53,58 L57,54 L64,55 L67,60 L63,64 L53,65 L47,69 Z" />
+    <!-- Swingarm and down tube -->
     <path
-        android:fillColor="#FF6F00"
-        android:pathData="M49,85L49,80L50,80L50,85Z" />
+        android:strokeColor="#0B2545"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M38,74 L46,67 M45,62 L38,74" />
+    <!-- Forks -->
     <path
-        android:fillColor="#FF6F00"
-        android:pathData="M50,75L50,70L51,70L51,75Z" />
+        android:strokeColor="#0B2545"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M66,59 L70,74" />
+    <!-- Handlebar, clear of the tank so the two do not read as one lump -->
     <path
-        android:fillColor="#FF6F00"
-        android:pathData="M53,65L53,60L54,60L54,65Z" />
-    <path
-        android:fillColor="#FF6F00"
-        android:pathData="M57,55L57,50L58,50L58,55Z" />
-    <path
-        android:fillColor="#FF6F00"
-        android:pathData="M59,45L59,40L60,40L60,45Z" />
-    <path
-        android:fillColor="#FF6F00"
-        android:pathData="M58,35L58,32L59,32L59,35Z" />
-    <!-- Sun accent -->
-    <path
-        android:fillColor="#FFB74D"
-        android:pathData="M78,25m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0" />
+        android:strokeColor="#0B2545"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:pathData="M64,55 L62,49 M57,48 L67,50" />
 </vector>

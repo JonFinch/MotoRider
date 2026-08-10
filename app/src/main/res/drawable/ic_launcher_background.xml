@@ -1,11 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Sky: darker at the top so the white peaks have something to sit against. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Deep blue background -->
-    <path
-        android:fillColor="#0D47A1"
-        android:pathData="M0,0L108,0L108,108L0,108Z" />
+    <path android:pathData="M0,0 L108,0 L108,108 L0,108 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="54" android:startY="0"
+                android:endX="54" android:endY="108"
+                android:type="linear">
+                <item android:offset="0" android:color="#0B3C7A" />
+                <item android:offset="1" android:color="#1565C0" />
+            </gradient>
+        </aapt:attr>
+    </path>
 </vector>

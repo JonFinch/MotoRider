@@ -1,6 +1,8 @@
 package com.motorider.ui.component
 
 import android.content.Context
+import android.graphics.Bitmap
+import androidx.core.graphics.createBitmap
 import android.location.Location
 import android.os.Looper
 import android.view.GestureDetector
@@ -79,6 +81,24 @@ private class RelayLocationProvider(context: Context) : IMyLocationProvider {
     }
 }
 
+/**
+ * Rasterise the motorcycle marker at the screen's density.
+ *
+ * osmdroid draws the position marker with `Canvas.drawBitmap`, so the vector has to
+ * be baked once rather than scaled per frame.
+ */
+private fun Context.motorcycleMarkerBitmap(): Bitmap {
+    val drawable = requireNotNull(
+        androidx.core.content.ContextCompat.getDrawable(this, com.motorider.R.drawable.ic_motorcycle_marker)
+    )
+    val size = (44 * resources.displayMetrics.density).toInt().coerceAtLeast(1)
+    val bitmap = createBitmap(size, size)
+    val canvas = android.graphics.Canvas(bitmap)
+    drawable.setBounds(0, 0, size, size)
+    drawable.draw(canvas)
+    return bitmap
+}
+
 @Composable
 fun OsmMapView(
     modifier: Modifier = Modifier,
@@ -119,6 +139,13 @@ fun OsmMapView(
 
     val locationOverlay = remember {
         MyLocationNewOverlay(relayProvider, mapView).apply {
+            // A motorcycle from above rather than osmdroid's default dot-and-arrow.
+            // The same bitmap serves both states on purpose: osmdroid swaps to the
+            // "person" icon whenever a fix arrives without a bearing, which happens
+            // every time the rider stops, and a marker that changes shape at every
+            // set of lights is worse than one that simply stops turning.
+            val bike = context.motorcycleMarkerBitmap()
+            setDirectionArrow(bike, bike)
             enableMyLocation()
             runOnFirstFix {
                 myLocation?.let { loc ->

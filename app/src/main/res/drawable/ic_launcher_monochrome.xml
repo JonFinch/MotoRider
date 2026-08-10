@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The themed-icon layer. Android 13+ recolours this to the user's wallpaper palette,
+  so it must be one flat shape with no colour of its own — the peaks and the bike
+  are distinguished by silhouette alone.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108"
+    android:tint="#FFFFFF">
+    <path android:fillColor="#FFFFFF" android:pathData="M25,66 L41,41 L57,66 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M47,66 L66,34 L84,66 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M24,66 L84,66 L84,69 L24,69 Z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M38,74 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 Z
+                          M38,74 m-4.5,0 a4.5,4.5 0 1,1 9,0 a4.5,4.5 0 1,1 -9,0 Z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M70,74 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 Z
+                          M70,74 m-4.5,0 a4.5,4.5 0 1,1 9,0 a4.5,4.5 0 1,1 -9,0 Z" />
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M41,69 L45,60 L53,58 L57,54 L64,55 L67,60 L63,64 L53,65 L47,69 Z" />
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="4"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M38,74 L46,67 M45,62 L38,74" />
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="4"
+        android:strokeLineCap="round" android:pathData="M66,59 L70,74" />
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.5"
+        android:strokeLineCap="round" android:pathData="M64,55 L62,49 M57,48 L67,50" />
+</vector>

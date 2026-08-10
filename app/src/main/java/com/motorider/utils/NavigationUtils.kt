@@ -323,3 +323,53 @@ class OffRouteDetector(private val thresholdMeters: Float = 50f, private val con
         consecutiveOffRoute = 0
     }
 }
+
+
+/**
+ * Movement needed before a bearing derived from two fixes can be trusted.
+ *
+ * A stationary GPS wanders several metres between fixes, and deriving a heading
+ * from that noise spins the map and the rider's marker while they sit at lights.
+ * At any riding speed consecutive fixes are far further apart than this.
+ */
+const val MIN_BEARING_DERIVATION_METERS = 8.0
+
+/**
+ * Speed below which a reported bearing is not worth believing.
+ *
+ * A GPS that is not moving still fills the bearing field, with whatever the last
+ * heading was or simply zero. Taking it at face value points the rider due north
+ * while they sit at a junction.
+ */
+const val MIN_TRUSTED_BEARING_SPEED_MPS = 1.0f
+
+/**
+ * The direction of travel to use for a fix, or null when there is nothing to go on.
+ *
+ * Preference order: the reported bearing when the fix is moving fast enough for it
+ * to mean anything, then what the movement since the last fix implies, then
+ * whatever was last settled on.
+ *
+ * The last of those matters as much as the first. This used to substitute 0f
+ * whenever the GPS withheld a bearing, which is not "unknown" but "due north": the
+ * map swung to north-up and the rider's marker span round to face it every time
+ * they slowed. Holding the previous heading is both truthful and stable.
+ *
+ * The speed gate matters because a fix can carry a bearing field that means
+ * nothing — the Android emulator reports a course of exactly 0 for every synthetic
+ * fix, and a real receiver does much the same at a standstill. Deriving from two
+ * positions is the more reliable signal whenever the fix itself is not moving.
+ */
+fun bearingForFix(
+    reported: Float?,
+    speedMps: Float,
+    previous: GeoPoint?,
+    current: GeoPoint,
+    lastKnown: Float?
+): Float? {
+    if (reported != null && speedMps >= MIN_TRUSTED_BEARING_SPEED_MPS) return reported
+    if (previous != null && previous.distanceToMeters(current) >= MIN_BEARING_DERIVATION_METERS) {
+        return calculateBearing(previous, current).toFloat()
+    }
+    return reported ?: lastKnown
+}

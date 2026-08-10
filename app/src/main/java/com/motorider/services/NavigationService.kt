@@ -20,6 +20,8 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
+import com.motorider.utils.bearingForFix
+import org.osmdroid.util.GeoPoint
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.motorider.R
@@ -377,17 +379,39 @@ class NavigationService : Service() {
 
     private inner class LocationUpdater : LocationListener {
 
+        private var previousPoint: GeoPoint? = null
+        private var lastBearing: Float? = null
+
         override fun onLocationChanged(location: Location) {
+            val point = GeoPoint(location.latitude, location.longitude)
             // hasSpeed()/hasBearing() rather than a `> 0` test: a stationary rider
             // legitimately reports 0 m/s, and due north is a legitimate bearing of 0.
-            val result = LocationResult(
-                location = location,
-                speed = if (location.hasSpeed()) location.speed else 0f,
-                accuracy = if (location.hasAccuracy()) location.accuracy else 0f,
-                bearing = if (location.hasBearing()) location.bearing else 0f
+            val speed = if (location.hasSpeed()) location.speed else 0f
+            val bearing = bearingForFix(
+                reported = if (location.hasBearing()) location.bearing else null,
+                speedMps = speed,
+                previous = previousPoint,
+                current = point,
+                lastKnown = lastBearing
             )
+            previousPoint = point
+            if (bearing != null) lastBearing = bearing
 
-            _locationFlow.value = result
+            // Stamped onto the published fix, not just carried alongside it. The map
+            // overlay that draws the rider's motorcycle reads the bearing off the
+            // Location itself and falls back to an unrotated icon without one.
+            val published = if (bearing != null && bearing != location.bearing) {
+                Location(location).apply { this.bearing = bearing }
+            } else {
+                location
+            }
+
+            _locationFlow.value = LocationResult(
+                location = published,
+                speed = speed,
+                accuracy = if (location.hasAccuracy()) location.accuracy else 0f,
+                bearing = bearing ?: 0f
+            )
         }
 
         override fun onProviderEnabled(provider: String) {

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The rider's own position: a motorcycle seen from directly above, drawn pointing
+  north.
+
+  osmdroid rotates this by the GPS bearing, so "north" here becomes the direction of
+  travel once it is on the map. While navigating the map itself is turned heading-up
+  as well, and the two rotations compose to leave the bike pointing up the screen.
+
+  Proportions matter more than detail at this size. A motorcycle from above is long
+  and narrow with one wide element — the bars — near the front, and that silhouette
+  is what identifies it; an earlier version was nearly as wide as it was long and
+  read as a figure rather than a bike. The wheels are near-black against a brand-blue
+  body so the two ends are distinguishable at a glance.
+
+  Every shape carries a white stroke. The marker sits on tiles that are pale in the
+  light theme and near-black in the dark one, and no single fill reads against both.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp"
+    android:height="40dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+
+    <!-- Front wheel -->
+    <path
+        android:fillColor="#0B2545"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineJoin="round"
+        android:pathData="M22.4,5 L25.6,5 A1.2,1.2 0 0 1 26.8,6.2 L26.8,14.4 A1.2,1.2 0 0 1 25.6,15.6 L22.4,15.6 A1.2,1.2 0 0 1 21.2,14.4 L21.2,6.2 A1.2,1.2 0 0 1 22.4,5 Z" />
+
+    <!-- Handlebars: the one wide element, and what fixes the front of the bike -->
+    <path
+        android:fillColor="#0B2545"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineJoin="round"
+        android:pathData="M14.5,15.4 L33.5,15.4 A1.5,1.5 0 0 1 33.5,18.4 L14.5,18.4 A1.5,1.5 0 0 1 14.5,15.4 Z" />
+
+    <!-- Tank -->
+    <path
+        android:fillColor="#1565C0"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineJoin="round"
+        android:pathData="M24,17.5 C27.6,17.5 29.2,19.8 29.2,23 C29.2,26 28,27.6 24,27.6 C20,27.6 18.8,26 18.8,23 C18.8,19.8 20.4,17.5 24,17.5 Z" />
+
+    <!-- Seat, narrower than the tank, which is the shape a bike has from above -->
+    <path
+        android:fillColor="#1565C0"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineJoin="round"
+        android:pathData="M21.2,27 L26.8,27 A1.4,1.4 0 0 1 28.2,28.4 L28.2,34 A1.4,1.4 0 0 1 26.8,35.4 L21.2,35.4 A1.4,1.4 0 0 1 19.8,34 L19.8,28.4 A1.4,1.4 0 0 1 21.2,27 Z" />
+
+    <!-- Rear wheel -->
+    <path
+        android:fillColor="#0B2545"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineJoin="round"
+        android:pathData="M22.2,33 L25.8,33 A1.2,1.2 0 0 1 27,34.2 L27,42.4 A1.2,1.2 0 0 1 25.8,43.6 L22.2,43.6 A1.2,1.2 0 0 1 21,42.4 L21,34.2 A1.2,1.2 0 0 1 22.2,33 Z" />
+</vector>
