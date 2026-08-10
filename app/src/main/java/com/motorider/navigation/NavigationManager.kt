@@ -154,7 +154,7 @@ class NavigationManager(
             totalWaypoints = route.waypoints.size,
             currentWaypointIndex = 0,
             currentInstruction = null,
-            upcomingInstructions = emptyList(),
+            followOnInstruction = null,
             warnings = emptyList()
         )
 
@@ -468,7 +468,12 @@ class NavigationManager(
             currentInstruction = if (arrived) {
                 route.turnInstructions?.lastOrNull { it.maneuverType == ManeuverType.ARRIVE }
             } else currentInstruction,
-            upcomingInstructions = instructions.drop(1).take(5),
+            // Nothing follows arriving.
+            followOnInstruction = if (arrived) {
+                null
+            } else {
+                followOnInstruction(currentInstruction, instructions.getOrNull(1))
+            },
             warnings = buildWarnings(isOff, isGps),
             isOffRoute = isOff,
             isGpsLost = isGps,
@@ -507,6 +512,33 @@ class NavigationManager(
      * The manoeuvres still ahead of the rider, nearest first, each carrying a live
      * distance from the rider's current position.
      */
+    /**
+     * The "then" manoeuvre, or null when there is nothing worth saying.
+     *
+     * Two conditions, and both matter:
+     *
+     *  - the rider is **approaching** the current manoeuvre. A follow-on announced
+     *    2 km out is not information, it is clutter — they will be told again when
+     *    it is relevant.
+     *  - the follow-on lands **soon after** it. This is the whole point: a junction
+     *    pair close enough that the second cannot be reacted to on its own once the
+     *    first is being ridden.
+     *
+     * Deliberately distance-based rather than time-based. A speed-derived window
+     * would make the line appear and vanish as the rider slows for the very turn it
+     * describes, and a flickering banner is worse than a slightly conservative one.
+     */
+    private fun followOnInstruction(
+        current: TurnInstruction?,
+        next: TurnInstruction?
+    ): TurnInstruction? {
+        if (current == null || next == null) return null
+        if (current.distanceToManeuver > FOLLOW_ON_APPROACH_METERS) return null
+        val gap = next.distanceToManeuver - current.distanceToManeuver
+        if (gap > FOLLOW_ON_GAP_METERS) return null
+        return next
+    }
+
     private fun liveInstructions(route: Route, distanceAlongRoute: Double): List<TurnInstruction> {
         val instructions = route.turnInstructions ?: return emptyList()
         return instructions
@@ -597,5 +629,16 @@ class NavigationManager(
 
         /** Do not repeat the same announcement within this window. */
         const val REPEAT_SUPPRESSION_MS = 20_000L
+
+        /** How close to the current manoeuvre before a follow-on is worth showing. */
+        const val FOLLOW_ON_APPROACH_METERS = 400.0
+
+        /**
+         * How soon after the current manoeuvre a follow-on must land to count as
+         * part of the same action. At the national speed limit 150 m is a handful
+         * of seconds — too little to read a fresh banner in, which is exactly why
+         * the rider should be told now.
+         */
+        const val FOLLOW_ON_GAP_METERS = 150.0
     }
 }

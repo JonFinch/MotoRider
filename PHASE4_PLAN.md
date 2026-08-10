@@ -10,7 +10,7 @@
 > |---|---|
 > | `navigation/TurnInstruction.kt`, `navigation/NavigationWarning.kt` | live in `models/` |
 > | `navigation/NavigationViewModel.kt` | lives in `ui/viewmodel/` |
-> | `component/NextManeuverCard.kt` | never built — `NavigationUIState.upcomingInstructions` is computed but nothing consumes it |
+> | `component/NextManeuverCard.kt` | **deliberately not built.** A scrollable list of 3–5 manoeuvres is the wrong shape for this app: the routing API returns no road names, so rows carry no landmark to tell them apart, and the 20° manoeuvre threshold means a curvy route — the kind this app exists to plan — fills the list with curve-following noise. Replaced by a single "then …" line in `TurnBanner`, shown only when the follow-on lands within 150 m of a manoeuvre the rider is already approaching. `upcomingInstructions` was dropped for `followOnInstruction`. |
 > | `component/NavigationMapView.kt` | never built — navigation drives the single shared `OsmMapView` via `NavigationMapCamera` |
 > | Full-screen `NavigationScreen` | a **transparent overlay** over the map, controls top and bottom |
 > | Speed-limit display and warnings | not implemented; the routing API returns no limit data |
@@ -620,7 +620,7 @@ NavigationViewModel.startNavigation(route)
 - [ ] Battery drain ≤ 20% per hour of active navigation — **not measured.** One GPS
       listener plus one low-rate network listener are held for a ride; see the
       "Known gaps" note in `AGENTS.md`
-- [x] All unit tests pass — 134 JVM tests, no device required
+- [x] All unit tests pass — 137 JVM tests, no device required
 - [ ] Manual testing passes on Android 7–15 — **partial**: exercised on an
       emulator (API 36) only
 

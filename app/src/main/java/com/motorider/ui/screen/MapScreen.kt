@@ -691,6 +691,7 @@ fun MapScreen(
                         eta = navState.eta,
                         currentSpeed = navState.currentSpeed,
                         currentInstruction = navState.currentInstruction,
+                        followOnInstruction = navState.followOnInstruction,
                         navigationWarnings = navState.warnings,
                         isOffRoute = navState.isOffRoute,
                         isGpsLost = navState.isGpsLost,
@@ -899,7 +900,7 @@ private fun BoxScope.QuickRidePanel(
                 onClick = { onGenerateRoundTrip(selectedDistanceKm, selectedDirection, rideStyle) },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                colors = brandButtonColors(AccentOrange),
                 enabled = currentLocation != null && !isBusy
             ) {
                 if (isBusy) {
@@ -1045,7 +1046,7 @@ private fun BoxScope.SearchPanel(
                     onClick = { onUseAsStop(place, true) },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                    colors = brandButtonColors(BrandBlue)
                 ) {
                     Icon(Icons.Default.Flag, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
@@ -1239,7 +1240,7 @@ private fun RouteInfoCard(
                 onClick = onNavigate,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                colors = brandButtonColors(BrandBlue)
             ) {
                 Icon(Icons.Outlined.Route, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))

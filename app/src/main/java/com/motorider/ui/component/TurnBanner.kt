@@ -30,12 +30,19 @@ import com.motorider.R
 import com.motorider.models.ManeuverType
 import com.motorider.models.TurnInstruction
 import com.motorider.ui.theme.BrandBlue
+import com.motorider.ui.theme.onBrandColor
 import com.motorider.ui.theme.ErrorRed
 import com.motorider.ui.theme.AccentOrange
 
 @Composable
 fun TurnBanner(
     instruction: TurnInstruction?,
+    /**
+     * The manoeuvre straight after [instruction], when the two come close enough
+     * together to be one action. Null the rest of the time — see
+     * [com.motorider.navigation.NavigationUIState.followOnInstruction].
+     */
+    nextInstruction: TurnInstruction?,
     isOffRoute: Boolean,
     isGpsLost: Boolean,
     modifier: Modifier = Modifier
@@ -46,6 +53,11 @@ fun TurnBanner(
         instruction == null -> BrandBlue
         else -> getUrgencyColor(instruction.distanceToManeuver)
     }
+
+    // The banner is painted a fixed brand colour, never colorScheme.primary, so its
+    // foreground has to be derived from that colour rather than taken from
+    // onPrimary. See onBrandColor for what went wrong when it wasn't.
+    val onBanner = onBrandColor(bannerColor)
 
     Surface(
         modifier = modifier
@@ -74,6 +86,7 @@ fun TurnBanner(
                     DirectionArrow(
                         maneuverType = targetInstruction?.maneuverType,
                         bearing = targetInstruction?.bearing,
+                        color = onBanner,
                         modifier = Modifier.size(56.dp)
                     )
 
@@ -84,7 +97,7 @@ fun TurnBanner(
                             text = getInstructionText(targetInstruction),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            color = onBanner,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -94,24 +107,60 @@ fun TurnBanner(
                                 text = formatDistance(targetInstruction.distanceToManeuver),
                                 style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onPrimary
+                                color = onBanner
                             )
                         }
                     }
                 }
             }
 
+            // The "then" line. Suppressed while off route or without GPS: the
+            // banner is reporting a problem at that point, and a confident
+            // follow-on manoeuvre derived from a route the rider is not on would
+            // be actively misleading.
+            if (nextInstruction != null && !isOffRoute && !isGpsLost) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    DirectionArrow(
+                        maneuverType = nextInstruction.maneuverType,
+                        bearing = nextInstruction.bearing,
+                        color = onBanner,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    // "then" is a separate word from the instruction rather than a
+                    // format string, so it never has to sit in front of a
+                    // capitalised manoeuvre and read as "then Turn right".
+                    Text(
+                        text = stringResource(R.string.nav_then),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = onBanner.copy(alpha = 0.75f)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = getInstructionText(nextInstruction),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = onBanner,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
             // Both of these draw on top of a banner that is *already* ErrorRed when
             // they are showing — the previous ErrorRed text was invisible against
-            // it, hiding the two states a rider most needs to see. onPrimary is the
-            // banner's own foreground colour, the same one the manoeuvre uses.
+            // it, hiding the two states a rider most needs to see.
             if (isOffRoute) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = stringResource(R.string.nav_off_route),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    color = onBanner
                 )
             }
 
@@ -121,7 +170,7 @@ fun TurnBanner(
                     text = stringResource(R.string.nav_gps_lost),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    color = onBanner
                 )
             }
         }
@@ -132,6 +181,8 @@ fun TurnBanner(
 private fun DirectionArrow(
     maneuverType: ManeuverType?,
     bearing: Double?,
+    /** Foreground for the banner this arrow sits on — see `onBanner` in [TurnBanner]. */
+    color: Color,
     modifier: Modifier = Modifier
 ) {
     val rotationAngle = when (maneuverType) {
@@ -147,10 +198,7 @@ private fun DirectionArrow(
         null -> 0.0
     }
 
-    val arrowColor = when (maneuverType) {
-        ManeuverType.ARRIVE, ManeuverType.WAYPOINT_ARRIVED -> MaterialTheme.colorScheme.onPrimary
-        else -> MaterialTheme.colorScheme.onPrimary
-    }
+    val arrowColor = color
 
     Canvas(modifier = modifier) {
         rotate(rotationAngle.toFloat()) {

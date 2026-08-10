@@ -41,7 +41,19 @@ data class NavigationUIState(
      */
     val routeGeometry: List<GeoPoint>? = null,
     val currentInstruction: TurnInstruction? = null,
-    val upcomingInstructions: List<TurnInstruction> = emptyList(),
+    /**
+     * The manoeuvre after [currentInstruction] — but only when it follows closely
+     * enough that the two are effectively one action ("left, then immediately
+     * right"), and only once the rider is near enough to the first to care. Null
+     * the rest of the time, which is most of the time.
+     *
+     * This replaced an `upcomingInstructions` list that nothing ever rendered. A
+     * list is the wrong shape here: the routing API returns no road names, so
+     * manoeuvres carry no landmark to tell them apart, and five rows of
+     * "Slight right · 650 m" is noise a rider cannot read at speed. One line for
+     * the case they genuinely cannot react to unaided is the useful part of it.
+     */
+    val followOnInstruction: TurnInstruction? = null,
     val warnings: List<NavigationWarning> = emptyList(),
     val isRecalculating: Boolean = false,
     val isOffRoute: Boolean = false,

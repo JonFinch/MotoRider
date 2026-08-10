@@ -82,6 +82,7 @@ import com.motorider.ui.component.StopKind
 import com.motorider.ui.component.StopRow
 import com.motorider.ui.theme.AccentOrange
 import com.motorider.ui.theme.BrandBlue
+import com.motorider.ui.theme.brandButtonColors
 import com.motorider.ui.theme.BrandBlueLight
 import com.motorider.ui.theme.ErrorRed
 import org.osmdroid.util.GeoPoint
@@ -300,7 +301,7 @@ fun BoxScope.PlanPanel(
                 enabled = draft.isPlannable && !isBusy,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue)
+                colors = brandButtonColors(BrandBlue)
             ) {
                 if (isBusy) {
                     CircularProgressIndicator(

@@ -80,6 +80,8 @@ fun NavigationScreen(
     eta: Long?,
     currentSpeed: Float,
     currentInstruction: TurnInstruction?,
+    /** Shown as a "then …" line when it follows [currentInstruction] closely. */
+    followOnInstruction: TurnInstruction?,
     navigationWarnings: List<NavigationWarning>,
     isOffRoute: Boolean,
     isGpsLost: Boolean,
@@ -135,6 +137,7 @@ fun NavigationScreen(
         ) {
             TurnBanner(
                 instruction = currentInstruction,
+                nextInstruction = followOnInstruction,
                 isOffRoute = isOffRoute,
                 isGpsLost = isGpsLost,
                 modifier = Modifier.fillMaxWidth()
@@ -340,8 +343,13 @@ fun NavigationScreen(
                             onClick = onEndNavigation,
                             modifier = Modifier.weight(1f).height(46.dp),
                             shape = RoundedCornerShape(12.dp),
+                            // contentColor has to be named too. buttonColors only
+                            // replaces what it is given, and its default content
+                            // colour is onPrimary — which in the dark scheme is a
+                            // dark blue, so "End Ride" was drawn blue-on-red.
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
                             )
                         ) {
                             Icon(Icons.Default.Close, null, Modifier.size(16.dp))

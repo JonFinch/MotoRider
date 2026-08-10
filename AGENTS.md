@@ -100,8 +100,9 @@ or as another stop.
 
 **Turn-by-turn navigation** — GPS tracking against the planned route geometry, with
 spoken and on-screen manoeuvres, live ETA, a speedometer, a route-progress bar,
-off-route recalculation and skippable intermediate waypoints. See "Navigation
-architecture" below.
+off-route recalculation and skippable intermediate waypoints. When two manoeuvres
+fall close together the banner adds a "then …" line, which is the only case a rider
+cannot react to unaided. See "Navigation architecture" below.
 
 **Offline maps** — five predefined regions (South East UK, South West UK, Wales,
 Peak & Lake District, Scottish Highlands) downloaded into osmdroid's tile cache for
@@ -184,6 +185,13 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
 - **Picked places carry their coordinates.** `RouteStop.point` is filled in when a
   search result is tapped. Re-geocoding a display name at routing time can resolve
   to a different place, because Nominatim ranks by relevance.
+- **Anything painted a fixed brand colour picks its foreground with
+  `onBrandColor`,** never `onPrimary`. The turn banner and the Find route / Generate
+  buttons are brand-coloured regardless of theme, and in the dark scheme `onPrimary`
+  is `BrandBlueDark` — that put dark-blue text on a red banner and on a blue button,
+  at night. `ButtonDefaults.buttonColors(containerColor = …)` is the trap: it leaves
+  the content colour at its default and looks correct in the light theme. Use
+  `brandButtonColors(…)`.
 - **Comments explain *why*, not *what*.** Most non-obvious code here encodes a
   platform constraint or a safety consideration; keep that reasoning with it.
 - **User-facing strings live in `strings.xml`.** No hardcoded UI text. `RouteUtils`
@@ -198,12 +206,12 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
 
 ## Testing
 
-134 JVM unit tests, no device required:
+137 JVM unit tests, no device required:
 
 | Suite | Covers |
 |---|---|
 | `NavigationUtilsTest` | snapping, cross-track distance, bearings, off-route |
-| `NavigationManagerTest` | state machine, progress, units, arrival, waypoints |
+| `NavigationManagerTest` | state machine, progress, units, arrival, waypoints, the "then" rule |
 | `NavigationCameraTest` | speed→zoom curve, heading smoothing, pinch override |
 | `TurnInstructionsTest` | manoeuvre generation from geometry |
 | `RouteUtilsTest` | geocoding and API response parsing |
@@ -251,9 +259,11 @@ without it.
   connection — and place search needs one too, since Nominatim is remote.
 - Stops cannot be reordered by dragging, and there is no "pick on the map" option
   in the location picker. Both are natural next additions to `PlanPanel`.
-- `NavigationUIState.upcomingInstructions` is computed on every fix and consumed by
-  nothing. `PHASE4_PLAN.md` planned a `NextManeuverCard` for it that was never
-  built — either build it or stop computing the list.
+- The dark scheme pairs `primary` (`BrandBlueLight`) with `onPrimary`
+  (`BrandBlueDark`) at about 3.3:1 contrast — fine for large bold labels, under AA
+  for normal text. Surfaces painted a *fixed* brand colour go through
+  `onBrandColor` and are unaffected; this is the default M3 pairing, and changing it
+  means changing the palette everywhere.
 - The arrival screen shows no ride summary. `NavigationUIState` publishes only
   what remains, not totals, so that would need the ViewModel to keep them.
 - No search history or saved places, so a regular route is retyped every time.

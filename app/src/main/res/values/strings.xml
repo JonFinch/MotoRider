@@ -222,6 +222,7 @@
     <string name="nav_continue">Continue</string>
     <string name="nav_arrive">Arrive at destination</string>
     <string name="nav_arrive_waypoint">Arrive at %s</string>
+    <string name="nav_then">then</string>
     <string name="nav_off_route">You\'re off route</string>
     <string name="nav_gps_lost">GPS signal lost</string>
     <string name="nav_recalculating">Recalculating...</string>

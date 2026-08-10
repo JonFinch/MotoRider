@@ -29,6 +29,15 @@ class NavigationManagerTest {
         (0..10).map { offset(0.0, it * 100.0) } +
             (1..10).map { offset(it * 100.0, 1000.0) }
 
+    /**
+     * A dogleg: 500 m east, left, 100 m north, right, then 500 m east again —
+     * two manoeuvres 100 m apart, the junction pair the "then" line exists for.
+     */
+    private fun doglegGeometry(): List<GeoPoint> =
+        (0..10).map { offset(0.0, it * 50.0) } +
+            (1..2).map { offset(it * 50.0, 500.0) } +
+            (1..10).map { offset(100.0, 500.0 + it * 50.0) }
+
     private fun routeOf(
         geometry: List<GeoPoint> = lShapedGeometry(),
         waypoints: List<Waypoint> = listOf(
@@ -152,15 +161,60 @@ class NavigationManagerTest {
         assertEquals(200.0, near, 20.0)
     }
 
+    // ─── The "then" line ─────────────────────────────────────────────────────
+
     @Test
-    fun upcomingListHoldsOnlyManeuvresStillAhead() {
+    fun followOnIsOfferedWhenTwoManoeuvresComeInQuickSuccession() {
         val manager = manager()
-        manager.startNavigation(routeOf())
-        manager.setPosition(offset(0.0, 500.0), 20f)
+        manager.startNavigation(routeOf(geometry = doglegGeometry()))
+
+        // 100 m short of the left turn, with the right turn 100 m beyond it.
+        manager.setPosition(offset(0.0, 400.0), 20f)
 
         val state = manager.uiState.value
-        assertTrue(state.upcomingInstructions.none { it.maneuverType == ManeuverType.DEPART })
-        assertTrue(state.upcomingInstructions.all { it.distanceToManeuver >= 0.0 })
+        assertEquals(ManeuverType.TURN_LEFT, state.currentInstruction!!.maneuverType)
+        assertEquals(
+            "the right that follows immediately should be offered",
+            ManeuverType.TURN_RIGHT,
+            state.followOnInstruction!!.maneuverType
+        )
+    }
+
+    @Test
+    fun followOnIsWithheldUntilTheRiderIsNearTheFirstManoeuvre() {
+        val manager = manager()
+        manager.startNavigation(routeOf(geometry = doglegGeometry()))
+
+        // 450 m out. The pair is just as close together, but announcing it here
+        // would be clutter — the rider gets told again when it matters.
+        manager.setPosition(offset(0.0, 50.0), 20f)
+
+        assertNull(manager.uiState.value.followOnInstruction)
+    }
+
+    @Test
+    fun followOnIsWithheldWhenTheNextManoeuvreIsFarBeyondTheCurrentOne() {
+        val manager = manager()
+        manager.startNavigation(routeOf())
+
+        // Approaching the single turn on the L-shape; the next thing after it is
+        // arrival, a kilometre further on.
+        manager.setPosition(offset(0.0, 900.0), 20f)
+
+        assertEquals(ManeuverType.TURN_LEFT, manager.uiState.value.currentInstruction!!.maneuverType)
+        assertNull(manager.uiState.value.followOnInstruction)
+    }
+
+    @Test
+    fun followOnIsClearedOnArrival() {
+        val manager = manager()
+        val route = routeOf(geometry = doglegGeometry())
+        manager.startNavigation(route)
+
+        manager.setPosition(route.routeGeometry!!.last(), 0f)
+
+        assertEquals(NavigationState.ARRIVED, manager.uiState.value.state)
+        assertNull("nothing follows arriving", manager.uiState.value.followOnInstruction)
     }
 
     // ─── Arrival ─────────────────────────────────────────────────────────────
