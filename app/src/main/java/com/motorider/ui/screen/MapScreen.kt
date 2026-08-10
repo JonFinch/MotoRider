@@ -345,12 +345,27 @@ fun MapScreen(
     val startColor = MarkerStart.toArgb()
     val viaColor = MarkerVia.toArgb()
     val endColor = MarkerEnd.toArgb()
-    LaunchedEffect(selectedRouteIndex, currentRoutes, navigating, navState.routeGeometry) {
+    val remainingColor = RouteRemaining.toArgb()
+    val travelledColor = RouteTravelled.toArgb()
+    // Keyed on position too, so the split follows the rider rather than only moving
+    // when the route itself changes.
+    LaunchedEffect(
+        selectedRouteIndex, currentRoutes, navigating,
+        navState.routeGeometry, navState.position, navState.routeSegmentIndex
+    ) {
         val route = currentRoutes.getOrNull(selectedRouteIndex)
         val geometry = if (navigating) navState.routeGeometry else route?.routeGeometry
         if (geometry == null) return@LaunchedEffect
 
-        mapRenderer.renderMotorcycleRoute(mapView, geometry)
+        // Only while actually riding. Paused or arrived, "how far have I got" is
+        // still worth seeing; before setting off there is nothing behind you.
+        val progress = navState.position
+            ?.takeIf { navigating && navState.state != NavigationState.IDLE }
+            ?.let { MotorcycleMapRenderer.RideProgress(navState.routeSegmentIndex, it) }
+
+        mapRenderer.renderMotorcycleRoute(
+            mapView, geometry, progress, remainingColor, travelledColor
+        )
 
         // Stop markers belong to the plan, not the ride: while navigating the
         // heading-up camera and turn banner say where to go, and dots on the line

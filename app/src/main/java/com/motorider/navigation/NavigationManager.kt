@@ -172,6 +172,7 @@ class NavigationManager(
             currentWaypointIndex = 0,
             currentInstruction = null,
             followOnInstruction = null,
+            routeSegmentIndex = 0,
             warnings = emptyList()
         )
 
@@ -545,6 +546,7 @@ class NavigationManager(
             // wanders across neighbouring streets at typical GPS accuracy.
             position = if (isOff) position else nearest.point,
             rawPosition = position,
+            routeSegmentIndex = nearest.segmentIndex,
             bearing = lastBearingDegrees,
             routeGeometry = geometry,
             currentInstruction = if (arrived) {

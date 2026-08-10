@@ -92,33 +92,92 @@ private class DotMarkerDrawable(
 class MotorcycleMapRenderer {
 
     private var _currentRouteLine: Polyline? = null
+    private var _travelledLine: Polyline? = null
     private val waypointMarkers = mutableListOf<org.osmdroid.views.overlay.Marker>()
 
+    private companion object {
+        const val ROUTE_WIDTH = 10f
+        /** Thinner as well as duller, so the road ahead reads as the primary line. */
+        const val TRAVELLED_WIDTH = 8f
+        const val DEFAULT_REMAINING_COLOR = 0xFFAA00FF.toInt()
+        const val DEFAULT_TRAVELLED_COLOR = 0xFF6F6478.toInt()
+    }
+
     /**
-     * Render a motorcycle-friendly route on the map.
+     * Where the rider has got to, for splitting the route line.
+     *
+     * [segmentIndex] is the last geometry vertex passed and [position] the snapped
+     * point between it and the next, so the split lands exactly under the rider
+     * rather than at the nearest vertex — which on a route with 40 m spacing would
+     * visibly lag or lead them.
      */
-    fun renderMotorcycleRoute(mapView: MapView?, waypoints: List<GeoPoint>?) {
+    data class RideProgress(val segmentIndex: Int, val position: GeoPoint)
+
+    /**
+     * Render the route, optionally splitting it at the rider.
+     *
+     * With [progress] the road already ridden is drawn duller and thinner and the
+     * road still to come keeps the full-strength colour, so what matters at a glance
+     * is what is left. Without it the whole line is drawn as remaining, which is the
+     * planning case.
+     *
+     * The two polylines are reused across calls rather than removed and re-added.
+     * This runs on every GPS fix, and churning overlays at 1 Hz makes the line
+     * flicker as osmdroid redraws.
+     */
+    fun renderMotorcycleRoute(
+        mapView: MapView?,
+        waypoints: List<GeoPoint>?,
+        progress: RideProgress? = null,
+        remainingColor: Int = DEFAULT_REMAINING_COLOR,
+        travelledColor: Int = DEFAULT_TRAVELLED_COLOR
+    ) {
         if (mapView == null || mapView.overlays == null || waypoints.isNullOrEmpty()) return
 
-        _currentRouteLine?.let {
-            mapView.overlays.remove(it)
-            _currentRouteLine = null
+        val travelled: List<GeoPoint>
+        val remaining: List<GeoPoint>
+        if (progress == null) {
+            travelled = emptyList()
+            remaining = waypoints
+        } else {
+            val index = progress.segmentIndex.coerceIn(0, waypoints.lastIndex)
+            travelled = waypoints.subList(0, index + 1) + progress.position
+            remaining = listOf(progress.position) + waypoints.subList(index + 1, waypoints.size)
         }
 
-        val routeLine = Polyline(mapView, false).apply {
-            setPoints(ArrayList(waypoints))
-            outlinePaint.apply {
-                color = 0xFFAA00FF.toInt()
-                strokeWidth = 10f
-                strokeCap = android.graphics.Paint.Cap.ROUND
-                strokeJoin = android.graphics.Paint.Join.ROUND
-                isAntiAlias = true
-            }
-        }
-
-        mapView.overlays.add(routeLine)
-        _currentRouteLine = routeLine
+        // Travelled first so the remaining line draws over it at the seam.
+        _travelledLine = updateLine(mapView, _travelledLine, travelled, travelledColor, TRAVELLED_WIDTH)
+        _currentRouteLine = updateLine(mapView, _currentRouteLine, remaining, remainingColor, ROUTE_WIDTH)
         mapView.invalidate()
+    }
+
+    /**
+     * Point an existing polyline at new points, creating or removing it as needed.
+     * Returns the line to keep, or null when there is nothing left to draw.
+     */
+    private fun updateLine(
+        mapView: MapView,
+        existing: Polyline?,
+        points: List<GeoPoint>,
+        color: Int,
+        width: Float
+    ): Polyline? {
+        // A one-point line is not a line: at the very start nothing is travelled,
+        // and at the finish nothing remains.
+        if (points.size < 2) {
+            existing?.let { mapView.overlays.remove(it) }
+            return null
+        }
+        val line = existing ?: Polyline(mapView, false).also { mapView.overlays.add(it) }
+        line.outlinePaint.apply {
+            this.color = color
+            strokeWidth = width
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            strokeJoin = android.graphics.Paint.Join.ROUND
+            isAntiAlias = true
+        }
+        line.setPoints(ArrayList(points))
+        return line
     }
 
     /**

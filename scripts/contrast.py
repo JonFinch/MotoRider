@@ -108,6 +108,29 @@ def check_banner():
         print(f'  {flag} {achieved:5.2f}:1  {pick:22s} on {name:20s}  (onBrandColor)')
     return bad
 
+# The route polyline is drawn over map tiles, not over an app surface, and is not
+# touched by the dark theme's INVERT_COLORS filter — only the tiles invert. So one
+# pair of colours has to work against typical OSM land in both themes. Judged at the
+# 3:1 WCAG asks of a non-text graphic; a line is not text.
+LIGHT_TILE = 'EFEDE8'
+DARK_TILE = '100F14'   # the same land colour once inverted
+
+
+def check_route_lines():
+    print('\n=== ROUTE LINE over map tiles (min 3.0, non-text) ===')
+    bad = []
+    for name in ('RouteRemaining', 'RouteTravelled'):
+        if name not in PAL:
+            continue
+        for tile_name, tile in (('light tiles', LIGHT_TILE), ('dark tiles', DARK_TILE)):
+            r = ratio(PAL[name], tile)
+            flag = 'FAIL' if r < NONTEXT else ('ok  ' if r < AAA else 'AAA ')
+            if r < NONTEXT:
+                bad.append((r, name, tile_name, name, tile))
+            print(f'  {flag} {r:5.2f}:1  {name:22s} on {tile_name:20s} [graphic min {NONTEXT}]')
+    return bad
+
+
 LIGHT_EXTRA = []
 DARK_EXTRA = []
 
@@ -115,7 +138,8 @@ bad = (audit('LIGHT text', LIGHT, LIGHT_EXTRA)
        + audit('LIGHT non-text', LIGHT, [], NONTEXT_PAIRS, NONTEXT, 'graphic')
        + audit('DARK text', DARK, DARK_EXTRA)
        + audit('DARK non-text', DARK, [], NONTEXT_PAIRS, NONTEXT, 'graphic')
-       + check_banner())
+       + check_banner()
+       + check_route_lines())
 
 print(f'\n{len(bad)} pair(s) below their minimum')
 for r, fg, bg, f, b in sorted(bad):

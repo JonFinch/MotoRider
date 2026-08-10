@@ -107,6 +107,22 @@ val BannerBlue = Color(0xFF1565C0)
 val BannerOrange = Color(0xFFE65100)
 val BannerRed = Color(0xFFC62828)
 
+/**
+ * The route line, and the part of it already ridden.
+ *
+ * Both are fixed rather than theme-derived because the polyline is drawn *over* the
+ * map tiles and is not affected by the dark theme's `INVERT_COLORS` filter — only
+ * the tiles invert. One pair therefore has to read against near-white land in the
+ * light theme and near-black in the dark one, which rules out anything at either
+ * extreme of the lightness range.
+ *
+ * The travelled colour is deliberately duller and darker: what is left to ride is
+ * the thing a rider needs to pick out at a glance, and the road behind them should
+ * recede without disappearing.
+ */
+val RouteRemaining = Color(0xFFAA00FF)
+val RouteTravelled = Color(0xFF6F6478)
+
 /** Start / via / destination markers. Each is drawn with a white ring for separation. */
 val MarkerStart = Color(0xFF1565C0)
 val MarkerVia = Color(0xFFE65100)

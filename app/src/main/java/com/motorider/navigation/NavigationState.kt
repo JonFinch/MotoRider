@@ -32,6 +32,15 @@ data class NavigationUIState(
     val position: GeoPoint? = null,
     /** Raw GPS fix, unsnapped — for anything that must not lie about position. */
     val rawPosition: GeoPoint? = null,
+    /**
+     * Index into [routeGeometry] of the last vertex the rider has passed.
+     *
+     * Published so the map can split the route line at the rider and draw the part
+     * already ridden differently. [progress] is not enough for that: it is a
+     * fraction of total distance, and turning it back into a vertex would mean
+     * re-walking the geometry the manager has already walked.
+     */
+    val routeSegmentIndex: Int = 0,
     /** Direction of travel in degrees clockwise from north. */
     val bearing: Float = 0f,
     /**

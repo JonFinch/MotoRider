@@ -109,7 +109,9 @@ or as another stop.
 
 **Turn-by-turn navigation** — GPS tracking against the planned route geometry, with
 spoken and on-screen manoeuvres, live ETA, a speedometer, a route-progress bar,
-off-route recalculation and skippable intermediate waypoints. Manoeuvres name the
+off-route recalculation and skippable intermediate waypoints. The route line is
+split at the rider: the road already ridden is drawn duller and thinner, so what is
+left reads as the primary line. Manoeuvres name the
 road they lead onto ("Turn left onto Tagg Lane", "Roundabout, exit 2"). When two
 fall close together the banner adds a "then …" line, which is the only case a rider
 cannot react to unaided. See "Navigation architecture" below.
@@ -161,6 +163,15 @@ instead: the turn banner's urgency fills (blue "in good time", orange "getting
 close", red "now" — the colour *is* the message, and a rider learns it), and the
 start/via/destination map markers, which sit on map tiles rather than an app
 surface.
+
+`RouteRemaining` and `RouteTravelled` are fixed for a related reason: the polyline
+is drawn over the tiles and is **not** touched by the dark theme's `INVERT_COLORS`,
+which applies to `mapOverlay` alone. One pair therefore has to read against
+near-white land and near-black land, which rules out anything at either end of the
+lightness range. The audit checks both against representative tiles at the 3:1 a
+non-text graphic needs. The two are separated by saturation and width rather than
+luminance — as they are squeezed between the two tile extremes there is little
+lightness room, which is also why every mainstream nav app does the same.
 
 ## Navigation architecture
 
@@ -278,13 +289,14 @@ while `distanceToManeuver` is filled in live by `NavigationManager` on each fix
 
 ## Testing
 
-150 JVM unit tests, no device required:
+154 JVM unit tests, no device required:
 
 | Suite | Covers |
 |---|---|
 | `NavigationUtilsTest` | snapping, cross-track distance, bearings, off-route |
 | `NavigationManagerTest` | state machine, progress, units, arrival, waypoints, the "then" rule |
 | `NavigationCameraTest` | speed→zoom curve, heading smoothing, pinch override |
+| `RideProgressTest` | the index the map splits the route line at |
 | `TurnInstructionsTest` | the geometry fallback's manoeuvre generation |
 | `ServiceInstructionsTest` | parsing the service's manoeuvres, sign codes, TTS coverage |
 | `RouteUtilsTest` | geocoding and API response parsing |
