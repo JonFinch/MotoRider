@@ -46,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -164,9 +165,11 @@ fun NavigationScreen(
             }
 
             navigationWarnings.forEach { warning ->
+                val (container, content) = warning.severity.colors()
                 WarningBanner(
                     message = warning.message,
-                    color = warning.severity.tint(),
+                    containerColor = container,
+                    contentColor = content,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)
                 )
             }
@@ -174,7 +177,8 @@ fun NavigationScreen(
             if (isOffline) {
                 WarningBanner(
                     message = stringResource(R.string.offline_indicator),
-                    color = MaterialTheme.colorScheme.secondary,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)
                 )
             }
@@ -412,32 +416,50 @@ private fun BoxScope.ArrivedPanel(onBackToPlanning: () -> Unit) {
     }
 }
 
+/**
+ * Container and content for a warning of this severity.
+ *
+ * A pair rather than a single tint, because the previous version drew the message
+ * *in* the severity colour on a plain surface — and the warning tint is the vivid
+ * brand orange, which is a fill colour. As text on a light surface it managed
+ * 3.79:1. Filling the banner with the container tone and writing on it in the
+ * matching `on` tone keeps the colour coding and gets 13:1.
+ */
 @Composable
-private fun WarningSeverity.tint() = when (this) {
-    WarningSeverity.CRITICAL -> MaterialTheme.colorScheme.error
-    WarningSeverity.WARNING -> MaterialTheme.colorScheme.secondary
-    WarningSeverity.INFO -> MaterialTheme.colorScheme.outlineVariant
+private fun WarningSeverity.colors(): Pair<Color, Color> = when (this) {
+    WarningSeverity.CRITICAL ->
+        MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
+    WarningSeverity.WARNING ->
+        MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+    WarningSeverity.INFO ->
+        MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable
 private fun WarningBanner(
     message: String,
-    color: androidx.compose.ui.graphics.Color,
+    containerColor: Color,
+    contentColor: Color,
     modifier: Modifier = Modifier
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        color = containerColor,
         shadowElevation = 2.dp
     ) {
         Row(
             modifier = Modifier.padding(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Warning, null, tint = color, modifier = Modifier.size(16.dp))
+            Icon(Icons.Default.Warning, null, tint = contentColor, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
-            Text(message, fontSize = 12.sp, color = color, fontWeight = FontWeight.Medium)
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = contentColor,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }

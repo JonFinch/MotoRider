@@ -39,38 +39,48 @@ LIGHT = scheme('private val LightScheme')
 DARK = scheme('private val DarkScheme')
 
 # Foreground/background pairs Material puts together, plus this app's own usages.
-ROLE_PAIRS = [
+# Text pairs must clear 4.5:1.
+TEXT_PAIRS = [
     ('onPrimary', 'primary'),
-    ('onSecondary', 'secondary'),
+    ('onSecondary', 'secondary'),          # button label on the orange fill
     ('onPrimaryContainer', 'primaryContainer'),
     ('onSecondaryContainer', 'secondaryContainer'),
+    ('onErrorContainer', 'errorContainer'),
     ('onSurface', 'surface'),
     ('onSurfaceVariant', 'surfaceVariant'),
-    ('onSurfaceVariant', 'surface'),   # secondary text on plain cards
+    ('onSurfaceVariant', 'surface'),
     ('onBackground', 'background'),
     ('onError', 'error'),
-    ('outline', 'surface'),
-    ('primary', 'surface'),            # tinted icons, links, progress on cards
-    ('secondary', 'surface'),
+    ('primary', 'surface'),                # tinted icons and text on cards
     ('error', 'surface'),
 ]
 
-AA, AA_LARGE, AAA = 4.5, 3.0, 7.0
+# Non-text pairs are UI components and graphics: WCAG 1.4.11 asks 3:1.
+# `secondary` lives here on purpose — the brand orange is a fill colour only
+# (slider track, Generate button, compass needle), never text or a glyph.
+NONTEXT_PAIRS = [
+    ('secondary', 'surface'),
+    ('outline', 'surface'),
+]
 
-def audit(label, sch, extra):
+AA, NONTEXT, AAA = 4.5, 3.0, 7.0
+
+def audit(label, sch, extra, pairs=None, floor=None, kind='text'):
+    if pairs is None: pairs = TEXT_PAIRS
+    if floor is None: floor = AA
     print(f'\n=== {label} ===')
     worst = []
-    for fg, bg in ROLE_PAIRS:
+    for fg, bg in pairs:
         if fg not in sch or bg not in sch:
             continue
         f, b = sch[fg], sch[bg]
         if f not in PAL or b not in PAL:
             continue
         r = ratio(PAL[f], PAL[b])
-        flag = 'FAIL' if r < AA else ('aa  ' if r < AAA else 'AAA ')
-        if r < AA:
+        flag = 'FAIL' if r < floor else ('ok  ' if r < AAA else 'AAA ')
+        if r < floor:
             worst.append((r, fg, bg, f, b))
-        print(f'  {flag} {r:5.2f}:1  {fg:22s} on {bg:20s}  ({f} on {b})')
+        print(f'  {flag} {r:5.2f}:1  {fg:22s} on {bg:20s}  ({f} on {b}) [{kind} min {floor}]')
     for fg, bg, note in extra:
         if fg not in PAL or bg not in PAL:
             continue
@@ -89,19 +99,25 @@ def check_banner():
     bad = []
     for name in ('BannerBlue', 'BannerOrange', 'BannerRed', 'MarkerStart', 'MarkerVia', 'MarkerEnd'):
         if name not in PAL: continue
-        best = max(ratio(PAL[name], 'FFFFFF'), ratio(PAL[name], '000000'))
-        pick = 'white' if ratio(PAL[name], 'FFFFFF') >= ratio(PAL[name], '000000') else 'black'
-        flag = 'FAIL' if best < AA else ('aa  ' if best < AAA else 'AAA ')
-        if best < AA: bad.append((best, pick, name, name, name))
-        print(f'  {flag} {best:5.2f}:1  {pick:22s} on {name:20s}  (auto-picked)')
+        # Exactly what onBrandColor does: compute both, take the winner.
+        on_white = ratio(PAL[name], 'FFFFFF')
+        on_black = ratio(PAL[name], '000000')
+        pick, achieved = ('black', on_black) if on_black >= on_white else ('white', on_white)
+        flag = 'FAIL' if achieved < AA else ('ok  ' if achieved < AAA else 'AAA ')
+        if achieved < AA: bad.append((achieved, pick, name, name, name))
+        print(f'  {flag} {achieved:5.2f}:1  {pick:22s} on {name:20s}  (onBrandColor)')
     return bad
 
 LIGHT_EXTRA = []
 DARK_EXTRA = []
 
-bad = audit('LIGHT', LIGHT, LIGHT_EXTRA) + audit('DARK', DARK, DARK_EXTRA) + check_banner()
+bad = (audit('LIGHT text', LIGHT, LIGHT_EXTRA)
+       + audit('LIGHT non-text', LIGHT, [], NONTEXT_PAIRS, NONTEXT, 'graphic')
+       + audit('DARK text', DARK, DARK_EXTRA)
+       + audit('DARK non-text', DARK, [], NONTEXT_PAIRS, NONTEXT, 'graphic')
+       + check_banner())
 
-print(f'\n{len(bad)} pair(s) below AA 4.5:1')
+print(f'\n{len(bad)} pair(s) below their minimum')
 for r, fg, bg, f, b in sorted(bad):
     print(f'  {r:5.2f}:1  {fg} on {bg}')
 sys.exit(1 if bad else 0)

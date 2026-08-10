@@ -558,7 +558,8 @@ fun MapScreen(
                 ) {
                     RouteWarningBanner(
                         stringResource(R.string.offline_indicator),
-                        MaterialTheme.colorScheme.secondary,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.padding(top = 12.dp, start = 16.dp, end = 16.dp)
                     )
                 }
@@ -835,12 +836,21 @@ private fun BoxScope.QuickRidePanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(stringResource(R.string.distance), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(
-                    "${"%.0f".format(displayValue)} $unitLabel",
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.secondary
-                )
+                // A filled pill rather than orange text: the brand orange is a fill
+                // colour, and the container tone carries the same accent while the
+                // number itself stays fully legible.
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Text(
+                        "${"%.0f".format(displayValue)} $unitLabel",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
             }
             Spacer(Modifier.height(4.dp))
             Slider(
@@ -1128,21 +1138,28 @@ private fun ThemeModeSelector(selected: ThemeMode, onSelect: (ThemeMode) -> Unit
 
 // ─── Route Info Card ────────────────────────────────────────────────────────
 
+/**
+ * Filled with the container tone and written on in the matching `on` tone, rather
+ * than drawing the message in a tint over a washed-out version of itself. The
+ * warning tint is the vivid brand orange, which is a fill colour — as text on a
+ * light surface it was 3.79:1.
+ */
 @Composable
 private fun RouteWarningBanner(
     message: String,
-    tint: Color,
+    containerColor: Color,
+    contentColor: Color,
     modifier: Modifier = Modifier
 ) {
     Surface(
         modifier = modifier.fillMaxWidth().padding(vertical = 6.dp),
         shape = RoundedCornerShape(10.dp),
-        color = tint.copy(alpha = 0.12f)
+        color = containerColor
     ) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Warning, null, Modifier.size(18.dp), tint = tint)
+            Icon(Icons.Outlined.Warning, null, Modifier.size(18.dp), tint = contentColor)
             Spacer(Modifier.width(8.dp))
-            Text(message, style = MaterialTheme.typography.bodySmall, color = tint)
+            Text(message, style = MaterialTheme.typography.bodySmall, color = contentColor)
         }
     }
 }
@@ -1180,14 +1197,26 @@ private fun RouteInfoCard(
             }
             if (route.isEstimate) {
                 // Not a real route: straight lines between waypoints. Say so loudly.
-                RouteWarningBanner(stringResource(R.string.route_estimate_warning), MaterialTheme.colorScheme.error)
+                RouteWarningBanner(
+                    stringResource(R.string.route_estimate_warning),
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                )
             }
             // A real route, but with a caveat the rider needs before setting off.
             if (!route.isEstimate && !route.avoidancesHonoured) {
-                RouteWarningBanner(stringResource(R.string.avoidances_not_honoured_warning), MaterialTheme.colorScheme.secondary)
+                RouteWarningBanner(
+                    stringResource(R.string.avoidances_not_honoured_warning),
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
             }
             if (!route.isEstimate && !route.curvatureAvailable) {
-                RouteWarningBanner(stringResource(R.string.curvature_unavailable_warning), MaterialTheme.colorScheme.secondary)
+                RouteWarningBanner(
+                    stringResource(R.string.curvature_unavailable_warning),
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
             }
 
             // Alternatives were labelled "Route 1", "Alt 2" — nothing to choose

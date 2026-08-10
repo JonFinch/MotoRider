@@ -476,15 +476,16 @@ fun BoxScope.PlanPeekHandle(onReveal: () -> Unit) {
 // ─── Ride style and avoidances ──────────────────────────────────────────────
 
 /**
- * Icon and tint per ride style. The tints escalate through the scheme's own roles
- * rather than four hand-picked brand colours, so each one is a pairing the contrast
- * audit already covers — and so they invert correctly at night.
+ * Icon and tint per ride style, escalating from muted to red as the route gets
+ * twistier. The tints come from scheme roles the contrast audit already covers,
+ * so they invert correctly at night — and none of them is the brand orange, which
+ * is a fill colour and would be 3.79:1 as a glyph on a light sheet.
  */
 @Composable
 fun rideStyleIcon(pref: RouteType): Pair<ImageVector, Color> = when (pref) {
-    RouteType.DIRECT -> Icons.Outlined.Speed to MaterialTheme.colorScheme.onSurfaceVariant
-    RouteType.FAST -> Icons.Outlined.Navigation to MaterialTheme.colorScheme.primary
-    RouteType.CURVY -> Icons.Outlined.Timeline to MaterialTheme.colorScheme.secondary
+    RouteType.DIRECT -> Icons.Outlined.Speed to MaterialTheme.colorScheme.outline
+    RouteType.FAST -> Icons.Outlined.Navigation to MaterialTheme.colorScheme.onSurfaceVariant
+    RouteType.CURVY -> Icons.Outlined.Timeline to MaterialTheme.colorScheme.primary
     RouteType.EXTRA_CURVY -> Icons.Outlined.Landscape to MaterialTheme.colorScheme.error
 }
 

@@ -126,12 +126,25 @@ python3 scripts/contrast.py .    # exits non-zero if any pair drops below AA
 
 The script reads `Color.kt` and `Theme.kt` directly, so it fails on a bad palette
 edit rather than on a screenshot someone happens to look at. Run it after touching
-either file.
+either file. It separates text pairs (4.5:1) from non-text components (3:1), and it
+replicates `onBrandColor` exactly rather than assuming the better of black/white —
+that assumption is what hid a real bug, where a hand-picked 0.35 lightness threshold
+put white on the orange turn banner at 3.08:1 when black would have given 6.82:1.
+The crossover is a luminance of 0.179, and it is now derived rather than guessed.
 
 Each brand hue carries a **ramp**, not a single value, because one colour cannot
 serve both themes: a blue dark enough to read on white is too dark on the night
 surface. The schemes pick the tone that suits their surface — light tones on top of
 dark ones in the dark scheme, and the mirror in the light scheme.
+
+**The brand orange is a fill, never a foreground.** Kept vivid on purpose, it
+reaches 3.79:1 on white — enough for the 3:1 WCAG asks of a non-text component (the
+Generate button, the slider track, the compass needle) and nowhere near the 4.5:1
+text needs. So `secondary` never colours text or a glyph: anything that should read
+as orange fills with `secondaryContainer` and writes in `onSecondaryContainer`.
+That is why the Quick Ride readout is a pill and the warning banners are filled
+rather than tinted. The audit encodes this — `secondary` is checked at the non-text
+threshold, so using it for text would be a silent regression the script cannot see.
 
 Three things are deliberately *not* theme-aware, and pair with `onBrandColor`
 instead: the turn banner's urgency fills (blue "in good time", orange "getting

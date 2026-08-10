@@ -18,8 +18,9 @@ private val LightScheme = lightColorScheme(
     onPrimary = BrandWhite,
     primaryContainer = BlueTone90,
     onPrimaryContainer = BlueTone10,
-    secondary = OrangeTone40,
-    onSecondary = BrandWhite,
+    // Fill only — see OrangeVivid. Nothing draws text or icons in this colour.
+    secondary = OrangeVivid,
+    onSecondary = OnOrangeVivid,
     secondaryContainer = OrangeTone90,
     onSecondaryContainer = OrangeTone10,
     surface = SurfaceWhite,

@@ -112,7 +112,7 @@ fun StopRow(
     onClear: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val (icon, tint) = stopIcon(kind)
+    val (icon, discColor, iconColor) = stopIcon(kind)
     val label = when (kind) {
         StopKind.START -> stringResource(R.string.stop_start)
         StopKind.DESTINATION -> stringResource(R.string.stop_destination)
@@ -133,15 +133,17 @@ fun StopRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // A tinted disc rather than a bare glyph: at a glance the rider is
-            // matching a colour to the marker on the map, not reading an icon.
+            // matching a colour to the marker on the map, not reading an icon. The
+            // disc takes a container tone and the glyph the matching `on` tone —
+            // tinting both from one colour put an orange icon on a pale orange disc.
             Box(
                 Modifier
                     .size(28.dp)
                     .clip(CircleShape)
-                    .background(tint.copy(alpha = 0.15f)),
+                    .background(discColor),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+                Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(16.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
@@ -175,11 +177,24 @@ fun StopRow(
     }
 }
 
+/** Glyph, disc colour, glyph colour — mirroring the start/via/end map markers. */
 @Composable
-private fun stopIcon(kind: StopKind): Pair<ImageVector, Color> = when (kind) {
-    StopKind.START -> Icons.Default.MyLocation to MaterialTheme.colorScheme.primary
-    StopKind.VIA -> Icons.Default.LocationOn to MaterialTheme.colorScheme.secondary
-    StopKind.DESTINATION -> Icons.Default.LocationOn to MaterialTheme.colorScheme.error
+private fun stopIcon(kind: StopKind): Triple<ImageVector, Color, Color> = when (kind) {
+    StopKind.START -> Triple(
+        Icons.Default.MyLocation,
+        MaterialTheme.colorScheme.primaryContainer,
+        MaterialTheme.colorScheme.onPrimaryContainer
+    )
+    StopKind.VIA -> Triple(
+        Icons.Default.LocationOn,
+        MaterialTheme.colorScheme.secondaryContainer,
+        MaterialTheme.colorScheme.onSecondaryContainer
+    )
+    StopKind.DESTINATION -> Triple(
+        Icons.Default.LocationOn,
+        MaterialTheme.colorScheme.errorContainer,
+        MaterialTheme.colorScheme.onErrorContainer
+    )
 }
 
 private sealed interface SearchUi {

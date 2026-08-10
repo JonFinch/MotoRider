@@ -38,12 +38,19 @@ val OrangeTone10 = Color(0xFF331200)
 val OrangeTone20 = Color(0xFF4F1D00)
 val OrangeTone30 = Color(0xFF7A3A00)
 /**
- * The light-theme orange. Noticeably deeper than the old `#FF8F00`, which was a
- * fill colour being used as a text colour: it managed 2.29:1 on white, so the Quick
- * Ride distance readout and the round-trip slider were the least readable things on
- * a screen used outdoors.
+ * The vivid brand orange, kept vivid on purpose — and therefore **fill only**.
+ *
+ * At 3.79:1 on white it clears the 3:1 that WCAG asks of a non-text component (a
+ * button, a slider track, the compass needle) and falls well short of the 4.5:1
+ * text needs. So `secondary` is never a text or icon colour in the light theme:
+ * anything that wants to read as orange uses `secondaryContainer` and puts
+ * [OrangeTone10] on it. The old palette used this hue as a text colour and got
+ * 2.29:1, which is how the Quick Ride readout ended up the least readable thing on
+ * a screen used in direct sun.
  */
-val OrangeTone40 = Color(0xFF9C4F00)
+val OrangeVivid = Color(0xFFE65100)
+/** Black, not white, on [OrangeVivid]: 5.54:1 against 3.79:1. */
+val OnOrangeVivid = Color(0xFF000000)
 val OrangeTone80 = Color(0xFFFFB870)
 val OrangeTone90 = Color(0xFFFFDCC2)
 
@@ -97,10 +104,10 @@ val BrandWhite = Color(0xFFFFFFFF)
  * markers likewise sit on map tiles, not on an app surface.
  */
 val BannerBlue = Color(0xFF1565C0)
-val BannerOrange = Color(0xFFEF6C00)
+val BannerOrange = Color(0xFFE65100)
 val BannerRed = Color(0xFFC62828)
 
 /** Start / via / destination markers. Each is drawn with a white ring for separation. */
 val MarkerStart = Color(0xFF1565C0)
-val MarkerVia = Color(0xFFEF6C00)
+val MarkerVia = Color(0xFFE65100)
 val MarkerEnd = Color(0xFFC62828)
