@@ -48,6 +48,22 @@ fun routeFramingBox(points: List<GeoPoint>): BoundingBox? {
 }
 
 /**
+ * Add [overlay] underneath the rider's own marker, or on top if there is none yet.
+ *
+ * osmdroid draws overlays in list order, and the position marker is added when the
+ * map is first composed — so anything added later, which is every route line and
+ * every stop marker, would otherwise be drawn over the top of the rider. Being
+ * unable to see where you are because the route you are following is covering you
+ * is the wrong way round.
+ */
+private fun MapView.addBelowRider(overlay: org.osmdroid.views.overlay.Overlay) {
+    val rider = overlays.indexOfFirst {
+        it is org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+    }
+    if (rider >= 0) overlays.add(rider, overlay) else overlays.add(overlay)
+}
+
+/**
  * A flat coloured disc with a white ring, drawn rather than loaded from a resource
  * so the marker colour can carry meaning (blue start, orange stop, red destination)
  * and match the stop rows in the planning sheet exactly.
@@ -168,7 +184,7 @@ class MotorcycleMapRenderer {
             existing?.let { mapView.overlays.remove(it) }
             return null
         }
-        val line = existing ?: Polyline(mapView, false).also { mapView.overlays.add(it) }
+        val line = existing ?: Polyline(mapView, false).also { mapView.addBelowRider(it) }
         line.outlinePaint.apply {
             this.color = color
             strokeWidth = width
@@ -217,7 +233,7 @@ class MotorcycleMapRenderer {
                 // info window on an accidental touch just covers it up.
                 setInfoWindow(null)
             }
-            view.overlays.add(marker)
+            view.addBelowRider(marker)
             waypointMarkers.add(marker)
         }
         view.invalidate()
