@@ -184,7 +184,14 @@ fun OsmMapView(
             // setting only one would leave the other as osmdroid's default man if
             // that ever changed.
             val bike = context.motorcycleMarkerBitmap()
-            setDirectionArrow(bike, bike)
+            setPersonIcon(bike)
+            setDirectionIcon(bike)
+            // Both anchors, explicitly. osmdroid's constructor anchors the person
+            // icon at (0.5, 0.8125) — the feet of the walking figure it ships — and
+            // the deprecated setDirectionArrow() does not touch it. Left alone, the
+            // bike hangs off the fix by its rear wheel.
+            setPersonAnchor(0.5f, 0.5f)
+            setDirectionAnchor(0.5f, 0.5f)
             enableMyLocation()
             runOnFirstFix {
                 myLocation?.let { loc ->
