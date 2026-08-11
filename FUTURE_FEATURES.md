@@ -2,6 +2,14 @@
 
 > Research compiled from Kurviger and Calimoto, the two leading motorcycle navigation apps.
 
+**This file is the roadmap: what is built, what is not, and why.** For how the
+unbuilt items would actually be delivered — sequencing, what the backend already
+gives us for free, and a 1–10 confidence rating on every feature — see
+[`IMPROVEMENTS_PLAN.md`](IMPROVEMENTS_PLAN.md). That document assesses an external
+specification (`~/Documents/improvements.md`, written for a different application)
+against this codebase, and most of what it covers lands somewhere in the phases
+below. Status is tracked here and nowhere else, so the two do not drift.
+
 ---
 
 ## Competitor Feature Analysis
@@ -68,7 +76,9 @@
 - [x] Route alternative generation (chips state each option's distance and duration)
 - [ ] Route elevation gain calculation display — *the routing API returns no
       elevation, so `Route.elevationGain` is hardcoded 0.0 and nothing displays it.
-      Was previously ticked here in error.*
+      Was previously ticked here in error. The cause is upstream of the API: the
+      graph is imported with no `graph.elevation.provider` set, so a re-import
+      unblocks this and four other items at once — see `IMPROVEMENTS_PLAN.md` §4.*
 - [ ] Route elevation profile graph — *never built; blocked on the above*
 
 ### Phase 2 — Maps & Offline [IN PROGRESS — 2 of 6 complete]
@@ -110,14 +120,23 @@
 - [x] Night mode map theme — osmdroid `INVERT_COLORS`
 - [x] Navigation notification persistence — ongoing notification with Pause/End
       actions, plus a `PARTIAL_WAKE_LOCK` so fixes keep arriving with the screen off
-- [ ] Speed limit display and warnings — *the routing API returns no speed-limit
-      data, and inferring limits from road class would be guesswork a rider might
-      act on. Deliberately not attempted.*
+- [ ] Speed limit display and warnings — *the first half of this is now out of
+      date: the curvature database does hold OSM's tagged limit
+      (`segment_ways.fk_maxspeed`), so the data exists and is reachable. The second
+      half stands and is the harder constraint — OSM coverage is partial, and
+      inferring a limit from road class where the tag is missing would be guesswork
+      a rider might act on. Displayable where tagged, never inferred. See
+      `IMPROVEMENTS_PLAN.md` §3.*
 - [ ] Lane guidance — *no lane data from the routing API*
 - [ ] Road closure / roadblock detection — *needs an external feed*
 - [ ] Handlebar controller / remote input support
 
 ### Phase 5 — Ride Data & Recording
+
+*The nearest unbuilt phase to shipping: `NavigationService` already publishes fixes
+with speed, bearing and accuracy at 1 Hz, so recording is a collector plus storage.
+Elevation gain is the exception — GPS altitude is too noisy to report. See
+`IMPROVEMENTS_PLAN.md` §5, stage A.*
 
 - [ ] Ride recording (GPS track logging)
 - [ ] Ride statistics dashboard (distance, duration, avg speed, top speed)
@@ -140,6 +159,12 @@
 - [ ] "Find curvy roads near me" discovery
 
 ### Phase 7 — Cloud & Premium
+
+*Every item here waits on user accounts, and the routing service has none — no
+authentication, no rate limiting, CORS open to all origins, by design as a stateless
+router. Making it a system of record is the largest single item on the roadmap and
+delivers no riding value on its own. `IMPROVEMENTS_PLAN.md` §5 puts it last
+deliberately.*
 
 - [ ] Route cloud sync between devices
 - [ ] User accounts
@@ -164,7 +189,10 @@
 - [ ] Haptic feedback on navigation alerts — *the planning sheet has haptics
       (ride-style change, swap, Find route); navigation itself has none*
 - [ ] Animated map transitions
-- [ ] Route curvature heatmap overlay
+- [ ] Route curvature heatmap overlay — *cheaper than it looks: the curvature API
+      already serves scored road geometry by bounding box, so this needs no new
+      data. The cost is on the client, where osmdroid has no vector styling. See
+      `IMPROVEMENTS_PLAN.md` §4.*
 - [ ] Fuel cost calculator
 - [ ] Weather forecast along route
 - [ ] Sunrise/sunset time for route planning
@@ -188,7 +216,12 @@
 | 8 — Platform expansion | Not started |
 | 9 — Polish & delight | Partial: theming shipped; haptics planning-only; no i18n |
 
-*Last updated: 2026-08-10 — audited against the shipped code. Phase 4 marked
-shipped; Phase 1's two elevation items un-ticked (they were never implemented);
-OSRM references corrected to the self-hosted routing API; Phase 6 and 9 updated for
-the place-search and theming work.*
+*Last updated: 2026-08-12 — cross-referenced to `IMPROVEMENTS_PLAN.md`, and the
+speed-limit entry corrected: the curvature database does carry OSM's tagged
+`maxspeed`, so the claim that no data exists was wrong. The reasoning against
+inferring untagged limits is unchanged. No status ticks moved.*
+
+*2026-08-10 — audited against the shipped code. Phase 4 marked shipped; Phase 1's
+two elevation items un-ticked (they were never implemented); OSRM references
+corrected to the self-hosted routing API; Phase 6 and 9 updated for the place-search
+and theming work.*
