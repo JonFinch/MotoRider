@@ -15,6 +15,9 @@ gradle/wrapper/gradle-wrapper.jar
 # Local configuration
 local.properties
 
+# Conductor machine-local settings (per-machine overrides of .conductor/settings.toml)
+.conductor/settings.local.toml
+
 # Claude Code scratch state, including agent git worktrees. These are whole
 # checkouts of this repo, so committing them would nest the project inside itself.
 .claude/

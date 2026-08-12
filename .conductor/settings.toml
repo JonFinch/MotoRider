@@ -1,0 +1,62 @@
+# Conductor shared settings for MotoRider - a Kotlin / Compose Android app built with
+# Gradle. This file is committed, so keep it machine-agnostic: per-machine overrides
+# (e.g. a specific JDK path) belong in the gitignored .conductor/settings.local.toml.
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+# A fresh worktree lacks the two gitignored files a build needs: local.properties
+# (sdk.dir + per-rider API credentials) and the Gradle wrapper jar this repo does not
+# commit. Copy both from the repository root into every new workspace at creation time.
+file_include_globs = [ "local.properties", "gradle/wrapper/gradle-wrapper.jar" ]
+
+[scripts]
+# AGP 9 / Gradle 9 need JDK 17+. Resolve it portably: honour an existing JAVA_HOME,
+# else use the first JDK found among the common Homebrew openjdk kegs and the Android
+# Studio JBR. (macOS `java_home -v` is unreliable here: it returns the newest JDK even
+# when the requested version is absent, so it cannot enforce a 17+ minimum.) If none
+# of these fit a given machine, pin JAVA_HOME in .conductor/settings.local.toml.
+setup = 'export JAVA_HOME="${JAVA_HOME:-$(for h in /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home /opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home /usr/local/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home /usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home "/Applications/Android Studio.app/Contents/jbr/Contents/Home"; do [ -x "$h/bin/java" ] && echo "$h" && break; done)}"; [ -f local.properties ] || echo "sdk.dir=${ANDROID_HOME:-$HOME/Library/Android/sdk}" > local.properties; ./gradlew --version'
+
+# One emulator and one applicationId (com.motorider) are shared across all workspaces,
+# so only one workspace may drive the device at a time.
+run_mode = "nonconcurrent"
+
+# Remove this workspace's app from the emulator on archive. Guarded so it never fails
+# when the emulator is off or the app is not installed.
+archive = '"${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb" uninstall com.motorider 2>/dev/null || true'
+
+# Boot the emulator if none is connected, wait for it, then build, install and launch
+# the debug app. The emulator is started detached so it outlives the run. Needs the
+# Mac's Android SDK + adb, hence local only. No CONDUCTOR_PORT: an Android app binds no
+# host port.
+[scripts.run.app]
+command = '''
+export JAVA_HOME="${JAVA_HOME:-$(for h in /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home /opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home /usr/local/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home /usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home "/Applications/Android Studio.app/Contents/jbr/Contents/Home"; do [ -x "$h/bin/java" ] && echo "$h" && break; done)}"
+SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"; ADB="$SDK/platform-tools/adb"
+if ! "$ADB" devices | grep -qw device; then
+  AVD="$("$SDK/emulator/emulator" -list-avds | head -1)"
+  ( nohup "$SDK/emulator/emulator" -avd "$AVD" -no-boot-anim >/dev/null 2>&1 & )
+  "$ADB" wait-for-device
+  n=0; until [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = "1" ]; do sleep 2; n=$((n+1)); [ "$n" -gt 90 ] && break; done
+  "$ADB" shell input keyevent 82 >/dev/null 2>&1 || true
+fi
+./gradlew installDebug && "$ADB" shell monkey -p com.motorider -c android.intent.category.LAUNCHER 1
+'''
+default = true
+icon = "smartphone"
+available_in = [ "local" ]
+
+# Optional: boot the first installed AVD without deploying (App boots one on its own).
+[scripts.run.emulator]
+command = 'SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"; "$SDK/emulator/emulator" -avd "$("$SDK/emulator/emulator" -list-avds | head -1)" -no-boot-anim'
+icon = "monitor-play"
+available_in = [ "local" ]
+
+# 163 JVM unit tests - no device required.
+[scripts.run.tests]
+command = 'export JAVA_HOME="${JAVA_HOME:-$(for h in /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home /opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home /opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home /usr/local/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home /usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home "/Applications/Android Studio.app/Contents/jbr/Contents/Home"; do [ -x "$h/bin/java" ] && echo "$h" && break; done)}"; ./gradlew testDebugUnitTest'
+icon = "test-tube"
+
+# Colour-contrast audit; non-zero exit on a regression.
+[scripts.run.contrast]
+command = 'python3 scripts/contrast.py .'
+icon = "palette"
