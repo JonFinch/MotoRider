@@ -1433,6 +1433,20 @@ private fun RouteInfoCard(
                         }
                     }
                 }
+                // Only some routes earn a superlative — often none do, when the
+                // alternatives are too close to call. Whichever way it falls, every
+                // chip in the row has to be the same height: one chip carrying
+                // "Fastest" grew a second line while its neighbours kept one, and a
+                // row of options at two different heights reads as a layout fault
+                // rather than as a distinction worth noticing.
+                //
+                // So the line is reserved for all of them as soon as any of them
+                // needs it, and left out entirely when none do. Reserving it with a
+                // blank line rather than a fixed height keeps the space in step with
+                // the rider's font scale — at large accessibility sizes a hardcoded
+                // dp value clips the very label it was meant to make room for.
+                val reserveSuperlativeLine = superlatives.isNotEmpty()
+
                 Spacer(Modifier.height(4.dp))
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -1451,9 +1465,12 @@ private fun RouteInfoCard(
                                         style = MaterialTheme.typography.labelMedium,
                                         maxLines = 1
                                     )
-                                    if (superlative != null) {
+                                    if (reserveSuperlativeLine) {
                                         Text(
-                                            superlative,
+                                            // A space, not "": an empty string is not
+                                            // guaranteed to lay out a line box, and the
+                                            // whole point of this line is its height.
+                                            superlative ?: " ",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 1
