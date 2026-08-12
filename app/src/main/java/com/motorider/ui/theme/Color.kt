@@ -123,7 +123,34 @@ val BannerRed = Color(0xFFC62828)
 val RouteRemaining = Color(0xFFAA00FF)
 val RouteTravelled = Color(0xFF6F6478)
 
+/**
+ * The routes not chosen, while planning.
+ *
+ * Neutral grey rather than a faded tint of [RouteRemaining]. Half-opacity purple was
+ * the same hue as the selected line, which read as "the chosen route, slightly
+ * washed out" — on a screen with three overlapping options a rider could not tell
+ * which line they had actually picked. Hue now carries the distinction and does not
+ * depend on judging two shades of one colour against whatever the tiles are doing
+ * underneath.
+ *
+ * Grey is a narrow target here: it must clear 3:1 against near-white land in the
+ * light theme *and* near-black in the dark one, which rules out both ends of the
+ * range. This sits near the middle at 3.94:1 and 4.14:1 respectively.
+ *
+ * It never appears alongside [RouteTravelled], despite the similar weight —
+ * alternatives are drawn only while planning, the travelled line only while riding.
+ */
+val RouteAlternative = Color(0xFF757575)
+
 /** Start / via / destination markers. Each is drawn with a white ring for separation. */
 val MarkerStart = Color(0xFF1565C0)
 val MarkerVia = Color(0xFFE65100)
 val MarkerEnd = Color(0xFFC62828)
+
+/**
+ * A fuel or food stop the rider diverted to mid-ride.
+ *
+ * Green because it is the one marker that is good news — the others mark the shape
+ * of the plan, this one marks the thing being looked for.
+ */
+val MarkerPoi = Color(0xFF00696E)

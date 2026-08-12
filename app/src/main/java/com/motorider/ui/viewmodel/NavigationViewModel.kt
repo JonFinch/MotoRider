@@ -111,6 +111,22 @@ class NavigationViewModel(
     private val _poiSearch = MutableStateFlow<PoiSearchState>(PoiSearchState.Closed)
     val poiSearch: StateFlow<PoiSearchState> = _poiSearch.asStateFlow()
 
+    /**
+     * The fuel or food stop the rider has diverted to, until they reach it.
+     *
+     * Held separately from the route's waypoints because the map needs to treat it
+     * differently from the rest of the plan. Stop markers are cleared while riding —
+     * mid-ride the turn banner says where to go and dots on the line are clutter —
+     * but this one is the exception the rider explicitly asked to see, and without
+     * it a diversion produced a silently redrawn line and no indication of where the
+     * petrol station actually was or how far off it lay.
+     *
+     * Cleared when the ride ends, and when the rider diverts somewhere else: only
+     * the stop currently being ridden to is ever shown.
+     */
+    private val _poiStop = MutableStateFlow<PoiResult?>(null)
+    val poiStop: StateFlow<PoiResult?> = _poiStop.asStateFlow()
+
     private var navigationService: NavigationService? = null
     private var serviceBound = false
     /** Route to start as soon as the service connects, if navigation was requested first. */
@@ -254,6 +270,8 @@ class NavigationViewModel(
         // ride days later, headed "Petrol ahead" and listing stations near where
         // the last ride finished.
         dismissPoiSearch()
+        // Belongs to the ride that just ended, same as the picker above.
+        _poiStop.value = null
         navigationService?.stopTracking()
         appContext.stopService(Intent(appContext, NavigationService::class.java))
         unbindService()
@@ -351,6 +369,12 @@ class NavigationViewModel(
             _errorMessage.value = "No active route to divert."
             return
         }
+
+        // Set before the recalculation rather than after it succeeds, so the marker
+        // appears the moment the rider picks a station. Waiting for the new route
+        // would leave the map unchanged for the seconds the round trip takes, which
+        // reads as the tap having missed.
+        _poiStop.value = poi
 
         // Paused, the GPS subscription is stopped, but replaceRoute puts the state
         // back to NAVIGATING — leaving a live-looking screen with a frozen position.

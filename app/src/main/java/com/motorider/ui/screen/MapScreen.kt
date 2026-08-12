@@ -201,6 +201,7 @@ fun MapScreen(
     val navError by navigationViewModel.errorMessage.collectAsState()
     val navLocation by navigationViewModel.locationFlow.collectAsState()
     val poiSearch by navigationViewModel.poiSearch.collectAsState()
+    val poiStop by navigationViewModel.poiStop.collectAsState()
 
     // Hold the display awake for the whole ride. The service's PARTIAL_WAKE_LOCK only
     // keeps the CPU running so fixes keep arriving — it does nothing for the screen,
@@ -401,26 +402,26 @@ fun MapScreen(
     val startColor = MarkerStart.toArgb()
     val viaColor = MarkerVia.toArgb()
     val endColor = MarkerEnd.toArgb()
+    val poiColor = MarkerPoi.toArgb()
     val remainingColor = RouteRemaining.toArgb()
     val travelledColor = RouteTravelled.toArgb()
-    // The same hue as the chosen route at half opacity: an alternative has to read
-    // as "the same kind of thing, not selected" rather than as a second, different
-    // feature on the map. Alpha rather than a new colour, because the palette is
-    // deliberately small and a third route tone would have to be defended against
-    // both tile extremes for no gain.
+    // Grey, not a faded purple. This was RouteRemaining at half alpha, on the
+    // reasoning that an alternative should read as "the same kind of thing, not
+    // selected" — but same-hue-lower-alpha is exactly the comparison the map makes
+    // hardest, because the tiles underneath change what a translucent line looks
+    // like from one stretch to the next. With three options overlapping, telling
+    // which line was actually selected became guesswork.
     //
-    // This is the one graphic in the app deliberately below the 3:1 the contrast
-    // audit asks of a non-text element, and it does not appear in `Color.kt` so the
-    // script never sees it. That is the intent: an alternative carries no
-    // information a rider acts on — the chosen route does, and it stays at full
-    // strength and full width. Anything legible enough to pass 3:1 here competed
-    // with the line actually being ridden.
-    val alternativeColor = RouteRemaining.copy(alpha = 0.5f).toArgb()
+    // Hue now carries it, and the selected route keeps full strength and the widest
+    // stroke, so it still reads first. Unlike the old value this is a real palette
+    // colour and is checked by scripts/contrast.py against both tile extremes.
+    val alternativeColor = RouteAlternative.toArgb()
     // Keyed on position too, so the split follows the rider rather than only moving
     // when the route itself changes.
     LaunchedEffect(
         selectedRouteIndex, currentRoutes, navigating,
-        navState.routeGeometry, navState.position, navState.routeSegmentIndex
+        navState.routeGeometry, navState.position, navState.routeSegmentIndex,
+        poiStop
     ) {
         val route = currentRoutes.getOrNull(selectedRouteIndex)
         val geometry = if (navigating) navState.routeGeometry else route?.routeGeometry
@@ -436,7 +437,13 @@ fun MapScreen(
         if (navigating || currentRoutes.size <= 1) {
             mapRenderer.clearAlternativeRoutes(mapView)
         }
-        if (navigating) {
+        // The plan's stop markers go as soon as the ride starts, for the reason given
+        // at the render below. A diversion marker is kept: it is re-rendered further
+        // down, but only past the `geometry == null` return, and that window is the
+        // whole time between tapping Start and the first fix arriving — minutes from
+        // inside a garage. Clearing here unconditionally made the fuel stop the rider
+        // had just chosen vanish for exactly that stretch.
+        if (navigating && poiStop == null) {
             mapRenderer.clearWaypointMarkers(mapView)
         }
 
@@ -470,19 +477,36 @@ fun MapScreen(
         // Stop markers belong to the plan, not the ride: while navigating the
         // heading-up camera and turn banner say where to go, and dots on the line
         // would only clutter it.
-        if (!navigating && route != null) {
-            val stops = route.waypoints
-            mapRenderer.renderWaypointMarkers(
-                mapView,
-                stops.map { it.location },
-                stops.map { it.name },
-                stops.indices.map { i ->
-                    when (i) {
-                        0 -> startColor
-                        stops.lastIndex -> endColor
-                        else -> viaColor
+        //
+        // A fuel or food stop is the exception, and the only marker drawn mid-ride.
+        // The rider went looking for it, so it is the one thing on the map they are
+        // actively trying to locate; without it a diversion just redrew the line and
+        // left them with no idea where the station was or how far off the route it
+        // sat. Everything else stays suppressed.
+        val stopsToDraw: Triple<List<GeoPoint>, List<String>, List<Int>>? = when {
+            !navigating && route != null -> {
+                val stops = route.waypoints
+                Triple(
+                    stops.map { it.location },
+                    stops.map { it.name },
+                    stops.indices.map { i ->
+                        when (i) {
+                            0 -> startColor
+                            stops.lastIndex -> endColor
+                            else -> viaColor
+                        }
                     }
-                }
+                )
+            }
+            navigating && poiStop != null -> {
+                val stop = poiStop!!
+                Triple(listOf(stop.location), listOf(stop.name), listOf(poiColor))
+            }
+            else -> null
+        }
+        if (stopsToDraw != null) {
+            mapRenderer.renderWaypointMarkers(
+                mapView, stopsToDraw.first, stopsToDraw.second, stopsToDraw.third
             )
         } else {
             mapRenderer.clearWaypointMarkers(mapView)
@@ -500,6 +524,26 @@ fun MapScreen(
     LaunchedEffect(isDarkTheme, mapView) {
         mapView?.mapOverlay?.setColorFilter(if (isDarkTheme) TilesOverlay.INVERT_COLORS else null)
         mapView?.invalidate()
+    }
+
+    /**
+     * Switch screens from the drawer, and stow the route summary on the way.
+     *
+     * The summary sheet and each screen's own sheet compete for the same slot at the
+     * bottom of the map, so every screen suppresses its panel while the summary is
+     * up. That left the drawer looking broken: with routes on screen, choosing Quick
+     * Ride switched to it and then showed nothing, because the summary was still
+     * visible and had hidden the panel that was just asked for. The only way through
+     * was to visit Plan and dismiss the summary there.
+     *
+     * Picking a destination in the drawer is a deliberate "show me this now", so the
+     * summary gives way. It is only stowed, not discarded - the routes stay in
+     * `currentRoutes` and on the map.
+     */
+    fun goToScreen(target: Screen) {
+        currentScreen = target
+        routeInfoVisible = false
+        scope.launch { drawerState.close() }
     }
 
     BackHandler(enabled = drawerState.isOpen) {
@@ -524,22 +568,10 @@ fun MapScreen(
                     )
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-                    DrawerItem(Screen.Plan, stringResource(R.string.drawer_plan), Icons.Outlined.EditLocation, currentScreen) {
-                        currentScreen = it
-                        scope.launch { drawerState.close() }
-                    }
-                    DrawerItem(Screen.QuickRide, stringResource(R.string.drawer_quick_ride), Icons.Outlined.Refresh, currentScreen) {
-                        currentScreen = it
-                        scope.launch { drawerState.close() }
-                    }
-                    DrawerItem(Screen.Search, stringResource(R.string.drawer_search), Icons.Outlined.Search, currentScreen) {
-                        currentScreen = it
-                        scope.launch { drawerState.close() }
-                    }
-                    DrawerItem(Screen.OfflineMaps, stringResource(R.string.offline_maps), Icons.Outlined.Download, currentScreen) {
-                        currentScreen = it
-                        scope.launch { drawerState.close() }
-                    }
+                    DrawerItem(Screen.Plan, stringResource(R.string.drawer_plan), Icons.Outlined.EditLocation, currentScreen, ::goToScreen)
+                    DrawerItem(Screen.QuickRide, stringResource(R.string.drawer_quick_ride), Icons.Outlined.Refresh, currentScreen, ::goToScreen)
+                    DrawerItem(Screen.Search, stringResource(R.string.drawer_search), Icons.Outlined.Search, currentScreen, ::goToScreen)
+                    DrawerItem(Screen.OfflineMaps, stringResource(R.string.offline_maps), Icons.Outlined.Download, currentScreen, ::goToScreen)
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
@@ -781,8 +813,23 @@ fun MapScreen(
                                     isPlanning = true
                                     generateRoundTrip(
                                         context, routeService, loc, dist, dir,
-                                        style, avoidances, ::handlePlanOutcome
-                                    )
+                                        style, avoidances
+                                    ) { outcome ->
+                                        // One loop, not a shortlist. Quick Ride's whole
+                                        // proposition is "give me a ride now" - handing
+                                        // back three loops to compare is the deliberation
+                                        // the rider opened this screen to avoid, and the
+                                        // service has already ranked them, so anything
+                                        // below the first is a worse answer to the same
+                                        // question. Planning is where choosing belongs.
+                                        handlePlanOutcome(
+                                            if (outcome is PlanOutcome.Success) {
+                                                PlanOutcome.Success(outcome.routes.take(1))
+                                            } else {
+                                                outcome
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         )

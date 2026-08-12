@@ -97,7 +97,7 @@ def audit(label, sch, extra, pairs=None, floor=None, kind='text'):
 def check_banner():
     print('\n=== BANNER FILLS (foreground chosen by onBrandColor) ===')
     bad = []
-    for name in ('BannerBlue', 'BannerOrange', 'BannerRed', 'MarkerStart', 'MarkerVia', 'MarkerEnd'):
+    for name in ('BannerBlue', 'BannerOrange', 'BannerRed', 'MarkerStart', 'MarkerVia', 'MarkerEnd', 'MarkerPoi'):
         if name not in PAL: continue
         # Exactly what onBrandColor does: compute both, take the winner.
         on_white = ratio(PAL[name], 'FFFFFF')
@@ -119,7 +119,7 @@ DARK_TILE = '100F14'   # the same land colour once inverted
 def check_route_lines():
     print('\n=== ROUTE LINE over map tiles (min 3.0, non-text) ===')
     bad = []
-    for name in ('RouteRemaining', 'RouteTravelled'):
+    for name in ('RouteRemaining', 'RouteTravelled', 'RouteAlternative'):
         if name not in PAL:
             continue
         for tile_name, tile in (('light tiles', LIGHT_TILE), ('dark tiles', DARK_TILE)):
