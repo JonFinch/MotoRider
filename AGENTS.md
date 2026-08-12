@@ -24,21 +24,17 @@ it is not part of the JVM test run. Gradle Groovy DSL, `compileSdk`/`targetSdk` 
 target and a release build must not point at a developer's LAN box.
 
 ```bash
-# Deployed server (default), using the credential from local.properties
+# Build and install, against the deployed server
 ./gradlew installDebug
-
-# A local docker-compose stack instead (no credential needed or sent)
-./gradlew installDebug \
-    -PmotoRiderApiBase=http://10.0.2.2:8080 \
-    -PmotoRiderTileBase=http://10.0.2.2:8081/styles/basic-preview
 
 # An APK for a tester, carrying their own credential rather than yours
 ./gradlew assembleDebug -PmotoRiderApiUser=dave -PmotoRiderApiPassword=...
 ```
 
 Both build types point at the deployed server; only `debuggable` and shrinking
-differ. One property name per URL — there is no separate debug variant, because
-a flag that silently does nothing is worse than no flag.
+differ. The `-PmotoRiderApiBase` / `-PmotoRiderTileBase` overrides exist for
+moving the server — a real domain in place of the sslip.io hostname — not for
+routine builds.
 
 The API sits behind HTTP Basic over TLS. Credentials come from
 `local.properties` (gitignored) via `BuildConfig`; unset means no

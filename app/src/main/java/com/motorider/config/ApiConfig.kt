@@ -5,12 +5,9 @@ import com.motorider.BuildConfig
 
 object ApiConfig {
     /**
-     * Base URL of the MotoRiderMaps routing API.
+     * Base URL of the MotoRiderMaps routing API, for every build type.
      *
-     * Defaults to the deployed server for every build type — see app/build.gradle.
-     * Point it at a local docker-compose stack instead with:
-     *
-     *   ./gradlew installDebug -PmotoRiderApiBase=http://10.0.2.2:8080
+     * Set in app/build.gradle; see there for how to point it somewhere else.
      */
     const val ROUTING_API_BASE_URL: String = BuildConfig.ROUTING_API_BASE_URL
 
@@ -33,9 +30,9 @@ object ApiConfig {
      *
      * Defaults to the deployed tileserver-gl, which serves the same {z}/{x}/{y}.png
      * slippy format as public OSM and is not bound by its bulk-download policy.
-     * Override with -PmotoRiderTileBase=... for a local stack, or to fall back to
-     * public OSM (https://tile.openstreetmap.org), which is served unauthenticated
-     * and so never sees our credential — see [mayAuthenticate].
+     * Overriding it back to public OSM (https://tile.openstreetmap.org) still
+     * works; that host is a third party, is served unauthenticated, and never sees
+     * our credential — see [mayAuthenticate].
      */
     const val TILE_SERVER_BASE_URL: String = BuildConfig.TILE_SERVER_BASE_URL
 
@@ -47,11 +44,12 @@ object ApiConfig {
      * `Authorization` header for MotoRiderMaps, or null when no credential is
      * configured.
      *
-     * Null is a supported state rather than a misconfiguration: a local
-     * docker-compose stack has no proxy in front of it and answers unauthenticated,
-     * so a debug build against 10.0.2.2 needs no credential and should send none.
-     * Callers omit the header entirely when this is null — sending `Basic` with an
-     * empty pair would turn a working local setup into a 401.
+     * Null when local.properties carries no credential, which is the state of a
+     * fresh clone. Callers omit the header entirely rather than sending `Basic`
+     * with an empty pair: an absent header produces a plain 401 that says what is
+     * wrong, where a malformed one invites debugging the server instead of the
+     * build. It is not a state any working build should be in — the server rejects
+     * every request without a credential.
      *
      * Computed per call rather than cached in a field so the credential is not held
      * in memory for the life of the process any longer than it must be. This is a

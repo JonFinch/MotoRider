@@ -85,16 +85,11 @@ Routing needs an API to point at. The URL comes from the build type, never
 hardcoded, because the right value differs per target:
 
 ```bash
-# Deployed server (default), using the credential from local.properties
 ./gradlew installDebug
-
-# A local docker-compose stack instead (no credential needed or sent).
-# 10.0.2.2 is the host loopback from the emulator; a physical device
-# needs the host's LAN IP.
-./gradlew installDebug \
-    -PmotoRiderApiBase=http://10.0.2.2:8080 \
-    -PmotoRiderTileBase=http://10.0.2.2:8081/styles/basic-preview
 ```
+
+The routing API and tile server are both the deployed host, for debug and
+release alike. Credentials come from `local.properties` (gitignored).
 
 Without a reachable API the app still runs — it returns clearly-labelled
 straight-line estimates instead of routes.

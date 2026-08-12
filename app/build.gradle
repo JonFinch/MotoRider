@@ -44,26 +44,15 @@ android {
         buildConfigField 'String', 'API_PASSWORD', "\"${apiCredential('motoRiderApiPassword')}\""
 
         // The deployed server, for debug and release alike. There is one server the
-        // app talks to; which build type is being assembled says nothing about
-        // where it should point, and having the two disagree meant every install
-        // command carried two -P flags to undo the default.
-        //
-        // One property name per URL, not one per build type. `motoRiderApiBase` and
-        // `motoRiderDevApiBase` used to be separate, so passing the former to a
-        // debug build silently did nothing and the app quietly kept talking to
-        // localhost — a no-op flag being the worst kind, since it looks like it
-        // worked.
+        // app talks to, and which build type is being assembled says nothing about
+        // where it should point.
         //
         // HTTPS is not decorative: the credential travels in an Authorization
         // header, and over plain HTTP anyone on the path could read it.
         //
-        // For a local docker-compose stack, override both — no credential is
-        // needed or sent, because that stack has no proxy in front of it:
-        //   ./gradlew installDebug \
-        //       -PmotoRiderApiBase=http://10.0.2.2:8080 \
-        //       -PmotoRiderTileBase=http://10.0.2.2:8081/styles/basic-preview
-        // 10.0.2.2 is the host loopback as seen from the emulator; on a physical
-        // device use the host's LAN address.
+        // The -P overrides exist for moving the server, not for day-to-day builds —
+        // swapping the sslip.io hostname for a real domain is a change here or a
+        // flag, and nothing else in the app depends on the name.
         buildConfigField 'String', 'ROUTING_API_BASE_URL',
                 "\"${project.findProperty('motoRiderApiBase') ?: 'https://35.195.170.50.sslip.io'}\""
         buildConfigField 'String', 'TILE_SERVER_BASE_URL',

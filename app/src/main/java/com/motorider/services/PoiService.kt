@@ -143,8 +143,9 @@ class PoiService {
         conn.readTimeout = READ_TIMEOUT_MS
         conn.setRequestProperty("Content-Type", "application/json")
         conn.setRequestProperty("User-Agent", "MotoRider/1.0")
-        // Omitted when no credential is configured, which is the local
-        // docker-compose case - it has no proxy and answers unauthenticated.
+        // Omitted when no credential is configured — a fresh clone with no
+        // local.properties. Sending `Basic` with an empty pair instead would
+        // turn a plain 401 into a malformed request.
         if (ApiConfig.mayAuthenticate(url)) {
             conn.setRequestProperty("Authorization", ApiConfig.authorizationHeader)
         }
