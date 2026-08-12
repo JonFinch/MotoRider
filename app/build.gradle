@@ -42,38 +42,41 @@ android {
         //   motoRiderApiPassword=...
         buildConfigField 'String', 'API_USERNAME', "\"${apiCredential('motoRiderApiUser')}\""
         buildConfigField 'String', 'API_PASSWORD', "\"${apiCredential('motoRiderApiPassword')}\""
+
+        // The deployed server, for debug and release alike. There is one server the
+        // app talks to; which build type is being assembled says nothing about
+        // where it should point, and having the two disagree meant every install
+        // command carried two -P flags to undo the default.
+        //
+        // One property name per URL, not one per build type. `motoRiderApiBase` and
+        // `motoRiderDevApiBase` used to be separate, so passing the former to a
+        // debug build silently did nothing and the app quietly kept talking to
+        // localhost — a no-op flag being the worst kind, since it looks like it
+        // worked.
+        //
+        // HTTPS is not decorative: the credential travels in an Authorization
+        // header, and over plain HTTP anyone on the path could read it.
+        //
+        // For a local docker-compose stack, override both — no credential is
+        // needed or sent, because that stack has no proxy in front of it:
+        //   ./gradlew installDebug \
+        //       -PmotoRiderApiBase=http://10.0.2.2:8080 \
+        //       -PmotoRiderTileBase=http://10.0.2.2:8081/styles/basic-preview
+        // 10.0.2.2 is the host loopback as seen from the emulator; on a physical
+        // device use the host's LAN address.
+        buildConfigField 'String', 'ROUTING_API_BASE_URL',
+                "\"${project.findProperty('motoRiderApiBase') ?: 'https://35.195.170.50.sslip.io'}\""
+        buildConfigField 'String', 'TILE_SERVER_BASE_URL',
+                "\"${project.findProperty('motoRiderTileBase') ?: 'https://35.195.170.50.sslip.io/styles/basic-preview'}\""
     }
 
     buildTypes {
         release {
             minifyEnabled = false
             proguardFiles(getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro')
-            // The hosted API. HTTPS is not decorative here: the credential travels
-            // in an Authorization header, and over plain HTTP anyone on the path
-            // could read it.
-            buildConfigField 'String', 'ROUTING_API_BASE_URL',
-                    "\"${project.findProperty('motoRiderApiBase') ?: 'https://35.195.170.50.sslip.io'}\""
-            // Self-hosted tiles, same host and credential. Served on their original
-            // paths through the proxy, so this is the tileserver-gl path unchanged.
-            buildConfigField 'String', 'TILE_SERVER_BASE_URL',
-                    "\"${project.findProperty('motoRiderTileBase') ?: 'https://35.195.170.50.sslip.io/styles/basic-preview'}\""
         }
         debug {
             debuggable = true
-            // Defaults to a local stack: 10.0.2.2 is the host loopback as seen from
-            // the emulator, and docker-compose.mac.yml publishes 8080 with no proxy
-            // in front, so no credential is needed or sent.
-            //
-            // To point a debug build at the deployed server instead, give it the
-            // hosted URL and put the credential in local.properties:
-            //   ./gradlew installDebug -PmotoRiderDevApiBase=https://35.195.170.50.sslip.io
-            buildConfigField 'String', 'ROUTING_API_BASE_URL',
-                    "\"${project.findProperty('motoRiderDevApiBase') ?: 'http://10.0.2.2:8080'}\""
-            // Public OSM by default so the map works with no local tile server.
-            // Local stack:  -PmotoRiderTileBase=http://10.0.2.2:8081/styles/basic-preview
-            // Deployed:     -PmotoRiderTileBase=https://35.195.170.50.sslip.io/styles/basic-preview
-            buildConfigField 'String', 'TILE_SERVER_BASE_URL',
-                    "\"${project.findProperty('motoRiderTileBase') ?: 'https://tile.openstreetmap.org'}\""
         }
     }
 

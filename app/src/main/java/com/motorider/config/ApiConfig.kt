@@ -5,14 +5,12 @@ import com.motorider.BuildConfig
 
 object ApiConfig {
     /**
-     * Base URL of the local MotoRiderMaps routing API.
+     * Base URL of the MotoRiderMaps routing API.
      *
-     * Supplied by the build type rather than hardcoded, because the correct value
-     * differs per target: the emulator reaches the host at 10.0.2.2, a physical
-     * device needs the host's LAN IP, and a release build must not ship either.
-     * Override at build time:
+     * Defaults to the deployed server for every build type — see app/build.gradle.
+     * Point it at a local docker-compose stack instead with:
      *
-     *   ./gradlew installDebug -PmotoRiderDevApiBase=http://192.168.68.52:8080
+     *   ./gradlew installDebug -PmotoRiderApiBase=http://10.0.2.2:8080
      */
     const val ROUTING_API_BASE_URL: String = BuildConfig.ROUTING_API_BASE_URL
 
@@ -33,10 +31,11 @@ object ApiConfig {
     /**
      * Base URL for map tiles, supplied by the build type (see app/build.gradle).
      *
-     * Defaults to public OSM. Override with -PmotoRiderTileBase=... to point at the
-     * self-hosted tileserver-gl (MotoRiderMaps docker-compose `tileserver` service),
-     * e.g. http://192.168.68.52:8081/styles/basic-preview - which serves the same
-     * {z}/{x}/{y}.png slippy format and is not bound by OSM's bulk-download policy.
+     * Defaults to the deployed tileserver-gl, which serves the same {z}/{x}/{y}.png
+     * slippy format as public OSM and is not bound by its bulk-download policy.
+     * Override with -PmotoRiderTileBase=... for a local stack, or to fall back to
+     * public OSM (https://tile.openstreetmap.org), which is served unauthenticated
+     * and so never sees our credential — see [mayAuthenticate].
      */
     const val TILE_SERVER_BASE_URL: String = BuildConfig.TILE_SERVER_BASE_URL
 

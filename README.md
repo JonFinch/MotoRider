@@ -85,11 +85,15 @@ Routing needs an API to point at. The URL comes from the build type, never
 hardcoded, because the right value differs per target:
 
 ```bash
-# Emulator (default): host loopback at 10.0.2.2:8080
+# Deployed server (default), using the credential from local.properties
 ./gradlew installDebug
 
-# Physical device: the host's LAN IP
-./gradlew installDebug -PmotoRiderDevApiBase=http://192.168.68.52:8080
+# A local docker-compose stack instead (no credential needed or sent).
+# 10.0.2.2 is the host loopback from the emulator; a physical device
+# needs the host's LAN IP.
+./gradlew installDebug \
+    -PmotoRiderApiBase=http://10.0.2.2:8080 \
+    -PmotoRiderTileBase=http://10.0.2.2:8081/styles/basic-preview
 ```
 
 Without a reachable API the app still runs — it returns clearly-labelled

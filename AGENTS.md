@@ -24,18 +24,28 @@ it is not part of the JVM test run. Gradle Groovy DSL, `compileSdk`/`targetSdk` 
 target and a release build must not point at a developer's LAN box.
 
 ```bash
-# Emulator (default): host loopback at 10.0.2.2:8080
+# Deployed server (default), using the credential from local.properties
 ./gradlew installDebug
 
-# Physical device: the host's LAN IP
-./gradlew installDebug -PmotoRiderDevApiBase=http://192.168.68.52:8080
+# A local docker-compose stack instead (no credential needed or sent)
+./gradlew installDebug \
+    -PmotoRiderApiBase=http://10.0.2.2:8080 \
+    -PmotoRiderTileBase=http://10.0.2.2:8081/styles/basic-preview
 
-# Self-hosted tileserver-gl instead of public OSM tiles
-./gradlew installDebug -PmotoRiderTileBase=http://192.168.68.52:8081/styles/basic-preview
+# An APK for a tester, carrying their own credential rather than yours
+./gradlew assembleDebug -PmotoRiderApiUser=dave -PmotoRiderApiPassword=...
 ```
 
-Release builds default `ROUTING_API_BASE_URL` to `https://api.motorider.invalid`
-deliberately — override with `-PmotoRiderApiBase=` when a hosted API exists.
+Both build types point at the deployed server; only `debuggable` and shrinking
+differ. One property name per URL — there is no separate debug variant, because
+a flag that silently does nothing is worse than no flag.
+
+The API sits behind HTTP Basic over TLS. Credentials come from
+`local.properties` (gitignored) via `BuildConfig`; unset means no
+`Authorization` header at all, which is what a local stack expects. They are
+recoverable from any APK that carries them, so build a tester their own with
+`-PmotoRiderApiUser`/`-PmotoRiderApiPassword` and issue it server-side with
+`scripts/manage_api_keys.sh` — never hand out a build carrying yours.
 
 ## Layout
 
