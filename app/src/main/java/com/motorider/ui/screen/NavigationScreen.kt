@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.LocalGasStation
+import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -96,11 +98,25 @@ fun NavigationScreen(
      */
     isOffline: Boolean = false,
     skipAvailableWaypointName: String?,
+    /** True while the fuel/food card is showing, which replaces the quick actions. */
+    poiPickerOpen: Boolean = false,
+    /**
+     * The fuel/food card, rendered inside this screen's bottom column rather than
+     * floated over it.
+     *
+     * It has to be a slot: aligned independently to BottomCenter it landed on top
+     * of the speedometer, the distance remaining and the End Ride button — hiding
+     * the ride's vital signs and its exits behind a list of petrol stations. In
+     * the column it takes its turn above the controls instead.
+     */
+    poiPicker: @Composable () -> Unit = {},
     onToggleTts: () -> Unit,
     onBackToPlanning: () -> Unit,
     onPauseNavigation: () -> Unit,
     onEndNavigation: () -> Unit = {},
     onSkipWaypoint: () -> Unit = {},
+    onFindFuel: () -> Unit = {},
+    onFindFood: () -> Unit = {},
     distanceUnitMiles: Boolean = true
 ) {
     fun formatDistance(meters: Double): String = if (distanceUnitMiles) {
@@ -193,6 +209,37 @@ fun NavigationScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             var showSkipConfirm by remember { mutableStateOf(false) }
+
+            // Fuel and food, one tap each. Deliberately above the ride controls and
+            // deliberately not behind a menu: the moment a rider wants these is the
+            // moment they least want to go looking, and a category picker in front
+            // of the answer would cost the tap the buttons exist to save.
+            //
+            // Hidden while the picker is open — the card it opens lands in this
+            // same strip of screen.
+            // The card takes the quick actions' place in the column rather than
+            // covering the controls below it.
+            poiPicker()
+
+            // Only while actually riding: paused is a deliberate "I have stopped",
+            // and diverting a ride that is not running is not a quick action.
+            if (!poiPickerOpen && navigationState == NavigationState.NAVIGATING) {
+                Row(
+                    modifier = Modifier.padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    QuickStopButton(
+                        icon = Icons.Outlined.LocalGasStation,
+                        label = stringResource(R.string.poi_fuel),
+                        onClick = onFindFuel
+                    )
+                    QuickStopButton(
+                        icon = Icons.Outlined.Restaurant,
+                        label = stringResource(R.string.poi_food),
+                        onClick = onFindFood
+                    )
+                }
+            }
 
             if (skipAvailableWaypointName != null) {
                 if (showSkipConfirm) {
@@ -363,6 +410,32 @@ fun NavigationScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * One of the two mid-ride quick actions.
+ *
+ * A filled tonal surface rather than an outlined button: these sit over live map
+ * tiles, and an outline alone gives no guaranteed contrast against whatever
+ * happens to be underneath.
+ */
+@Composable
+private fun QuickStopButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        shadowElevation = 4.dp
+    ) {
+        TextButton(onClick = onClick, modifier = Modifier.height(44.dp)) {
+            Icon(icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(6.dp))
+            Text(label, fontWeight = FontWeight.SemiBold)
         }
     }
 }

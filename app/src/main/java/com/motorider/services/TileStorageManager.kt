@@ -4,6 +4,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.graphics.Rect
 import android.os.StatFs
+import com.motorider.config.ApiConfig
 import com.motorider.utils.MapTileSource
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.modules.SqlTileWriter
@@ -42,6 +43,12 @@ class TileStorageManager(private val context: Context) {
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
             connection.setRequestProperty("User-Agent", "MotoRider/1.0")
+            // Only for our own tile server. mayAuthenticate returns false when tiles
+            // come from public OSM, so a pre-download against tile.openstreetmap.org
+            // never carries the credential.
+            if (ApiConfig.mayAuthenticate(url)) {
+                connection.setRequestProperty("Authorization", ApiConfig.authorizationHeader)
+            }
 
             if (connection.responseCode == 200) {
                 connection.inputStream.use { input ->

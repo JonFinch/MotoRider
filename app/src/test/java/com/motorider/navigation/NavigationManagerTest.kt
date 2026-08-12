@@ -708,4 +708,64 @@ class NavigationManagerTest {
         assertFalse("the detour clears the off-route flag", state.isOffRoute)
         assertTrue("the map needs the new line to draw", state.routeGeometry!!.isNotEmpty())
     }
+
+    // ─── remainingWaypoints ──────────────────────────────────────────────────
+    //
+    // These back the mid-ride fuel/food diversion, which routes
+    // "current position -> the stop -> everywhere still to come". Getting the
+    // boundary wrong here silently deletes a stop from the rider's ride.
+
+    @Test
+    fun remainingWaypointsKeepsTheStopTheRiderIsCurrentlyHeadingFor() {
+        val geometry = lShapedGeometry()
+        val waypoints = listOf(
+            Waypoint("Start", geometry.first()),
+            Waypoint("Cafe", geometry[10]),
+            Waypoint("End", geometry.last())
+        )
+        val manager = manager()
+        manager.startNavigation(routeOf(geometry = geometry, waypoints = waypoints))
+
+        // 200 m in: the cafe is still ahead, not behind.
+        manager.setPosition(offset(0.0, 200.0), 20f)
+
+        val remaining = manager.remainingWaypoints().map { it.name }
+        assertEquals(
+            "diverting for fuel must not drop the cafe from the ride",
+            listOf("Cafe", "End"),
+            remaining
+        )
+    }
+
+    @Test
+    fun remainingWaypointsDropsAStopOnceItIsBehindTheRider() {
+        val geometry = lShapedGeometry()
+        val waypoints = listOf(
+            Waypoint("Start", geometry.first()),
+            Waypoint("Cafe", geometry[5]),
+            Waypoint("End", geometry.last())
+        )
+        val manager = manager()
+        manager.startNavigation(routeOf(geometry = geometry, waypoints = waypoints))
+
+        // Well past the cafe, onto the northward leg.
+        manager.setPosition(offset(500.0, 1000.0), 20f)
+
+        assertEquals(listOf("End"), manager.remainingWaypoints().map { it.name })
+    }
+
+    @Test
+    fun remainingWaypointsNeverRoutesBackToTheStart() {
+        val manager = manager()
+        manager.startNavigation(routeOf())
+        manager.setPosition(offset(0.0, 100.0), 20f)
+
+        val remaining = manager.remainingWaypoints()
+        assertEquals(listOf("End"), remaining.map { it.name })
+    }
+
+    @Test
+    fun remainingWaypointsIsEmptyWithoutARoute() {
+        assertTrue(manager().remainingWaypoints().isEmpty())
+    }
 }

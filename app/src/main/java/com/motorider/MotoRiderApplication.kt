@@ -2,6 +2,7 @@ package com.motorider
 
 import android.app.Application
 import android.util.Log
+import com.motorider.config.ApiConfig
 import com.motorider.services.TileStorageManager
 import org.osmdroid.config.Configuration
 
@@ -41,6 +42,21 @@ class MotoRiderApplication : Application() {
             // well above any realistic offline set; the user manages space via delete.
             Configuration.getInstance().tileFileSystemCacheMaxBytes = 8L * 1024 * 1024 * 1024
             Configuration.getInstance().tileFileSystemCacheTrimBytes = 7L * 1024 * 1024 * 1024
+
+            // The live map's tiles are fetched by osmdroid itself, not by any of our
+            // own HttpURLConnection code, so adding the header at our call sites
+            // covers the offline pre-downloader and misses every tile the rider
+            // actually sees. This is osmdroid's only hook for extra request headers.
+            //
+            // Guarded by mayAuthenticate: these properties are applied to every tile
+            // request osmdroid makes, so setting them unconditionally would send our
+            // credential to tile.openstreetmap.org whenever the app is pointed at
+            // public OSM.
+            val tileBase = ApiConfig.TILE_SERVER_BASE_URL
+            if (ApiConfig.mayAuthenticate(tileBase)) {
+                Configuration.getInstance().additionalHttpRequestProperties["Authorization"] =
+                    ApiConfig.authorizationHeader
+            }
 
             // Repair any cached tiles missing an expiry (written by earlier builds), off
             // the main thread, so offline browsing serves them directly instead of as

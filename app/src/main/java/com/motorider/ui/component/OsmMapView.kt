@@ -12,7 +12,9 @@ import android.view.ViewGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -145,6 +147,16 @@ fun OsmMapView(
     onMapViewReady: ((MapView) -> Unit)? = null,
     onMapTapped: (() -> Unit)? = null,
     /**
+     * Fired when the rider presses and holds a spot on the map, with the coordinate
+     * under their finger.
+     *
+     * A long press rather than a tap because a tap already stows and reveals the
+     * planning sheet — and more to the point, dropping a stop is destructive to a
+     * half-built plan, so it must not be reachable by the gesture a rider makes by
+     * accident while getting hold of the phone.
+     */
+    onMapLongPress: ((GeoPoint) -> Unit)? = null,
+    /**
      * Fired while the rider is pinching. Reported from here rather than by watching
      * osmdroid's zoom events, because those fire for programmatic zooms too and a
      * following camera could not tell its own changes from the rider's.
@@ -221,20 +233,45 @@ fun OsmMapView(
         }
     }
 
-    DisposableEffect(onMapTapped, onMapPinched) {
+    // Read through rememberUpdatedState and keyed on Unit, so the detector is built
+    // once and never rebuilt when a caller passes a fresh lambda.
+    //
+    // Keyed on the lambdas instead, the effect re-ran on most recompositions: they
+    // are written inline and capture an unstable CoroutineScope, so Compose cannot
+    // memoise them. Disposing a GestureDetector mid-gesture leaves its queued
+    // LONG_PRESS message on the main Looper with nothing to cancel it, while the
+    // ACTION_UP goes to a replacement that never saw the ACTION_DOWN — so a plain
+    // tap did nothing and then dropped a route stop half a second later. The
+    // reverse-geocode callback from a previous pin recomposes MapScreen at exactly
+    // the wrong moment to make that reachable.
+    val currentOnMapTapped by rememberUpdatedState(onMapTapped)
+    val currentOnMapLongPress by rememberUpdatedState(onMapLongPress)
+    val currentOnMapPinched by rememberUpdatedState(onMapPinched)
+
+    DisposableEffect(Unit) {
         val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapUp(e: MotionEvent): Boolean {
                 if (e.pointerCount == 1) {
-                    onMapTapped?.invoke()
+                    currentOnMapTapped?.invoke()
                 }
                 return false
+            }
+
+            override fun onLongPress(e: MotionEvent) {
+                if (e.pointerCount != 1) return
+                val handler = currentOnMapLongPress ?: return
+                // Screen pixels to a coordinate. The projection accounts for the
+                // map's rotation, so this stays correct under the heading-up camera
+                // as well as on the north-up planning map.
+                val point = mapView.projection?.fromPixels(e.x.toInt(), e.y.toInt()) ?: return
+                handler(GeoPoint(point.latitude, point.longitude))
             }
         })
         val listener = android.view.View.OnTouchListener { _, event ->
             detector.onTouchEvent(event)
             // Two pointers down can only be the rider; osmdroid never synthesises it.
             if (event.pointerCount >= 2) {
-                onMapPinched?.invoke()
+                currentOnMapPinched?.invoke()
             }
             false
         }

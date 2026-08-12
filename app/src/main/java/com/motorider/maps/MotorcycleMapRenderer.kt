@@ -110,11 +110,14 @@ class MotorcycleMapRenderer {
     private var _currentRouteLine: Polyline? = null
     private var _travelledLine: Polyline? = null
     private val waypointMarkers = mutableListOf<org.osmdroid.views.overlay.Marker>()
+    private val alternativeLines = mutableListOf<Polyline>()
 
     private companion object {
         const val ROUTE_WIDTH = 10f
         /** Thinner as well as duller, so the road ahead reads as the primary line. */
         const val TRAVELLED_WIDTH = 8f
+        /** Thinner again than the travelled line: an alternative is the faintest thing drawn. */
+        const val ALTERNATIVE_WIDTH = 7f
         const val DEFAULT_REMAINING_COLOR = 0xFFAA00FF.toInt()
         const val DEFAULT_TRAVELLED_COLOR = 0xFF6F6478.toInt()
     }
@@ -194,6 +197,76 @@ class MotorcycleMapRenderer {
         }
         line.setPoints(ArrayList(points))
         return line
+    }
+
+    /**
+     * Draw the routes the rider did *not* pick, so the choice is a visible one.
+     *
+     * Without these the alternatives chips are a lucky dip: three options
+     * distinguishable only by a distance and a time, when what actually decides it
+     * is which valley the road goes down. Each line is tappable, because a rider
+     * comparing lines on the map wants to choose by pointing at one rather than by
+     * working out which chip it belongs to.
+     *
+     * Drawn beneath the selected route rather than over it — they are context, and
+     * the line being ridden must stay the one that reads first. [alternativeColor]
+     * is expected to be a translucent form of the route colour.
+     *
+     * @param geometries one entry per alternative, in the order their chips appear;
+     *   the selected route's own entry should be omitted by the caller.
+     * @param onSelect invoked with the index the geometry came from.
+     */
+    fun renderAlternativeRoutes(
+        mapView: MapView?,
+        geometries: List<Pair<Int, List<GeoPoint>>>,
+        alternativeColor: Int,
+        onSelect: (Int) -> Unit
+    ) {
+        val view = mapView ?: return
+        clearAlternativeRoutes(view)
+        if (geometries.isEmpty()) return
+
+        geometries.forEach { (index, points) ->
+            if (points.size < 2) return@forEach
+            val line = Polyline(view, false).apply {
+                outlinePaint.apply {
+                    color = alternativeColor
+                    strokeWidth = ALTERNATIVE_WIDTH
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                    strokeJoin = android.graphics.Paint.Join.ROUND
+                    isAntiAlias = true
+                }
+                setPoints(ArrayList(points))
+                setOnClickListener { _, _, _ ->
+                    onSelect(index)
+                    true
+                }
+            }
+            view.addBelowSelectedRoute(line)
+            alternativeLines.add(line)
+        }
+        view.invalidate()
+    }
+
+    fun clearAlternativeRoutes(mapView: MapView?) {
+        val view = mapView ?: return
+        if (alternativeLines.isEmpty()) return
+        view.overlays.removeAll(alternativeLines.toSet())
+        alternativeLines.clear()
+        view.invalidate()
+    }
+
+    /**
+     * Insert below the selected route line, so an alternative can never cover it.
+     *
+     * [addBelowRider] is not enough on its own here: it appends at the rider's
+     * index, which is *after* the route line added earlier, so an alternative
+     * placed that way would be drawn over the route it is an alternative to.
+     */
+    private fun MapView.addBelowSelectedRoute(overlay: org.osmdroid.views.overlay.Overlay) {
+        val route = _travelledLine ?: _currentRouteLine
+        val index = route?.let { overlays.indexOf(it) } ?: -1
+        if (index >= 0) overlays.add(index, overlay) else addBelowRider(overlay)
     }
 
     /**

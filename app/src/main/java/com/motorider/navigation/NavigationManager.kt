@@ -479,11 +479,23 @@ class NavigationManager(
         }
     }
 
-    /** Waypoints still ahead of the rider, for rebuilding a route on recalculation. */
+    /**
+     * Waypoints still ahead of the rider, for rebuilding a route on recalculation.
+     *
+     * "Still ahead" **includes** the one currently being ridden towards.
+     * [NavigationUIState.currentWaypointIndex] is the index of the waypoint the
+     * rider is heading for, not the last one reached, so excluding it would quietly
+     * drop the next stop from the ride — a rider diverting for fuel between two
+     * stops would never be taken to the first of them and would not be told.
+     *
+     * The floor of 1 keeps the start out of it: on a plain two-waypoint route
+     * [computeWaypointIndex] reports 0 throughout, and index 0 is where the rider
+     * set off from. Routing them back to it is never what "still ahead" means.
+     */
     fun remainingWaypoints(): List<Waypoint> {
         val route = currentRoute ?: return emptyList()
-        val current = _uiState.value.currentWaypointIndex
-        return route.waypoints.filterIndexed { index, _ -> index > current }
+        val current = _uiState.value.currentWaypointIndex.coerceAtLeast(1)
+        return route.waypoints.filterIndexed { index, _ -> index >= current }
             .ifEmpty { listOfNotNull(route.waypoints.lastOrNull()) }
     }
 

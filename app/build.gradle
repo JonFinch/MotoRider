@@ -3,6 +3,27 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+// Credentials for the self-hosted MotoRiderMaps API, which sits behind HTTP Basic
+// over TLS. Read from local.properties (already gitignored) so no secret is ever
+// committed, with a -P override for CI. Absent is a supported state and means "send
+// no Authorization header" - which is what a local docker-compose stack, having no
+// proxy in front of it, expects.
+//
+// Anything embedded in an APK is extractable by whoever holds the APK; this keeps
+// credentials out of the repository, not out of the built app. Per-rider issuance is
+// what makes that acceptable: a leaked credential is revoked by name.
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+
+def apiCredential = { String key ->
+    def value = project.findProperty(key) ?: localProperties.getProperty(key) ?: ''
+    // Escaped because the value is interpolated into a Java string literal below.
+    return value.toString().replace('\\', '\\\\').replace('"', '\\"')
+}
+
 android {
     namespace = 'com.motorider'
     compileSdk = 36
@@ -14,33 +35,43 @@ android {
         versionCode = 1
         versionName = '1.0'
         testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
+
+        // Same credential for both build types: it identifies the rider, not the
+        // build. Set in local.properties:
+        //   motoRiderApiUser=jon
+        //   motoRiderApiPassword=...
+        buildConfigField 'String', 'API_USERNAME', "\"${apiCredential('motoRiderApiUser')}\""
+        buildConfigField 'String', 'API_PASSWORD', "\"${apiCredential('motoRiderApiPassword')}\""
     }
 
     buildTypes {
         release {
             minifyEnabled = false
             proguardFiles(getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro')
-            // Release builds must not point at a developer's LAN box. Override with
-            // -PmotoRiderApiBase=https://... when a hosted API exists.
+            // The hosted API. HTTPS is not decorative here: the credential travels
+            // in an Authorization header, and over plain HTTP anyone on the path
+            // could read it.
             buildConfigField 'String', 'ROUTING_API_BASE_URL',
-                    "\"${project.findProperty('motoRiderApiBase') ?: 'https://api.motorider.invalid'}\""
-            // Map tiles. Defaults to public OSM; override with the self-hosted
-            // tileserver-gl base once it's productionised:
-            // -PmotoRiderTileBase=https://tiles.motorider.example/styles/basic-preview
+                    "\"${project.findProperty('motoRiderApiBase') ?: 'https://35.195.170.50.sslip.io'}\""
+            // Self-hosted tiles, same host and credential. Served on their original
+            // paths through the proxy, so this is the tileserver-gl path unchanged.
             buildConfigField 'String', 'TILE_SERVER_BASE_URL',
-                    "\"${project.findProperty('motoRiderTileBase') ?: 'https://tile.openstreetmap.org'}\""
+                    "\"${project.findProperty('motoRiderTileBase') ?: 'https://35.195.170.50.sslip.io/styles/basic-preview'}\""
         }
         debug {
             debuggable = true
-            // 10.0.2.2 is the host loopback as seen from the Android emulator.
-            // On a physical device set motoRiderDevApiBase to the host's LAN IP,
-            // e.g. ./gradlew installDebug -PmotoRiderDevApiBase=http://192.168.68.52:8080
+            // Defaults to a local stack: 10.0.2.2 is the host loopback as seen from
+            // the emulator, and docker-compose.mac.yml publishes 8080 with no proxy
+            // in front, so no credential is needed or sent.
+            //
+            // To point a debug build at the deployed server instead, give it the
+            // hosted URL and put the credential in local.properties:
+            //   ./gradlew installDebug -PmotoRiderDevApiBase=https://35.195.170.50.sslip.io
             buildConfigField 'String', 'ROUTING_API_BASE_URL',
                     "\"${project.findProperty('motoRiderDevApiBase') ?: 'http://10.0.2.2:8080'}\""
-            // Map tiles. Defaults to public OSM so the app works with no local
-            // tile server. Point at the self-hosted tileserver-gl (compose service
-            // on host port 8081) with the host's LAN IP:
-            // -PmotoRiderTileBase=http://192.168.68.52:8081/styles/basic-preview
+            // Public OSM by default so the map works with no local tile server.
+            // Local stack:  -PmotoRiderTileBase=http://10.0.2.2:8081/styles/basic-preview
+            // Deployed:     -PmotoRiderTileBase=https://35.195.170.50.sslip.io/styles/basic-preview
             buildConfigField 'String', 'TILE_SERVER_BASE_URL',
                     "\"${project.findProperty('motoRiderTileBase') ?: 'https://tile.openstreetmap.org'}\""
         }

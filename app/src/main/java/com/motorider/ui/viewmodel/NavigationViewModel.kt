@@ -12,6 +12,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.motorider.models.PoiCategory
+import com.motorider.models.PoiResult
 import com.motorider.models.Route
 import com.motorider.models.RouteType
 import com.motorider.models.Waypoint
@@ -21,6 +23,8 @@ import com.motorider.navigation.NavigationUIState
 import com.motorider.navigation.TTSManager
 import com.motorider.services.LocationResult
 import com.motorider.services.NavigationService
+import com.motorider.services.PoiOutcome
+import com.motorider.services.PoiService
 import com.motorider.services.RouteService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -32,6 +36,31 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.util.GeoPoint
 import java.util.Calendar
+
+/**
+ * What the fuel/food picker is doing, if anything.
+ *
+ * [Empty] and [Failed] are separate states rather than an empty [Results], because
+ * a rider low on fuel needs to know which of "there is nothing out here" and "the
+ * search did not work" they are looking at — the first means press on, the second
+ * means try again.
+ */
+sealed interface PoiSearchState {
+    data object Closed : PoiSearchState
+
+    data class Searching(val category: PoiCategory) : PoiSearchState
+
+    /** [onRoute] false means nothing was found on the road ahead and these are detours. */
+    data class Results(
+        val category: PoiCategory,
+        val results: List<PoiResult>,
+        val onRoute: Boolean
+    ) : PoiSearchState
+
+    data class Empty(val category: PoiCategory) : PoiSearchState
+
+    data class Failed(val category: PoiCategory, val message: String) : PoiSearchState
+}
 
 /**
  * Bridges the navigation service (GPS) and the navigation manager (logic) to the UI.
@@ -65,6 +94,7 @@ class NavigationViewModel(
 
     private val navigationManager = NavigationManager()
     private val ttsManager = TTSManager(appContext)
+    private val poiService = PoiService()
 
     val uiState: StateFlow<NavigationUIState> = navigationManager.uiState
     val locationFlow: StateFlow<LocationResult?> = navigationManager.locationFlow
@@ -78,12 +108,18 @@ class NavigationViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _poiSearch = MutableStateFlow<PoiSearchState>(PoiSearchState.Closed)
+    val poiSearch: StateFlow<PoiSearchState> = _poiSearch.asStateFlow()
+
     private var navigationService: NavigationService? = null
     private var serviceBound = false
     /** Route to start as soon as the service connects, if navigation was requested first. */
     private var pendingRoute: Route? = null
     private var recalculating = false
     private var lastRecalculationAtMs = 0L
+
+    /** Bumped per POI search so a superseded one cannot publish its answer. */
+    private var poiSearchToken = 0
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -213,6 +249,11 @@ class NavigationViewModel(
     fun endNavigation() {
         navigationManager.endNavigation()
         pendingRoute = null
+        // The picker belongs to the ride that just ended. Left set, a result still
+        // in flight would land after the rider got home and reappear on their next
+        // ride days later, headed "Petrol ahead" and listing stations near where
+        // the last ride finished.
+        dismissPoiSearch()
         navigationService?.stopTracking()
         appContext.stopService(Intent(appContext, NavigationService::class.java))
         unbindService()
@@ -231,10 +272,101 @@ class NavigationViewModel(
         recalculateTo(remaining, "Could not route past the skipped waypoint.")
     }
 
+    // ─── Fuel and food ───────────────────────────────────────────────────────
+
+    /**
+     * Look for the nearest [category] on the road ahead.
+     *
+     * Position is the latest raw fix. The corridor is measured along the route from
+     * wherever the rider actually is, which is the honest starting point even when
+     * that is a few metres off the line.
+     */
+    fun searchPoi(category: PoiCategory) {
+        val state = uiState.value
+        val here = navigationManager.currentPosition ?: state.rawPosition
+        if (here == null) {
+            _poiSearch.value = PoiSearchState.Failed(category, "No GPS fix yet.")
+            return
+        }
+
+        // Every search gets a token. Without one, two searches in flight are told
+        // apart only by the *type* of the current state, so a rider who taps Fuel
+        // and then Food is shown whichever answer lands first under whichever
+        // heading is current — in practice, petrol stations labelled "Food ahead",
+        // with the food search silently discarded.
+        val token = ++poiSearchToken
+        _poiSearch.value = PoiSearchState.Searching(category)
+
+        poiService.findNearest(
+            category = category,
+            riderPosition = here,
+            routeGeometry = state.routeGeometry.orEmpty(),
+            segmentIndex = state.routeSegmentIndex
+        ) { outcome ->
+            // Superseded by a later search, or the rider closed the card, or the
+            // ride ended while this was in flight. Dropping a result panel back
+            // over the map in any of those cases would be worse than losing it.
+            if (token != poiSearchToken) return@findNearest
+            if (_poiSearch.value !is PoiSearchState.Searching) return@findNearest
+
+            _poiSearch.value = when (outcome) {
+                is PoiOutcome.OnRoute -> PoiSearchState.Results(category, outcome.results, onRoute = true)
+                is PoiOutcome.OffRoute -> PoiSearchState.Results(category, outcome.results, onRoute = false)
+                PoiOutcome.None -> PoiSearchState.Empty(category)
+                is PoiOutcome.Failed -> PoiSearchState.Failed(category, outcome.message)
+            }
+        }
+    }
+
+    fun dismissPoiSearch() {
+        // Bumping the token as well as closing the card: a result still in flight
+        // must not reopen it seconds after the rider dismissed it.
+        poiSearchToken++
+        _poiSearch.value = PoiSearchState.Closed
+    }
+
+    /**
+     * Divert through [poi], then carry on to everywhere the rider was already going.
+     *
+     * The stop is inserted ahead of the remaining waypoints rather than replacing
+     * the route, so filling up does not quietly cancel the rest of the ride —
+     * which is what routing straight to the petrol station would do.
+     */
+    fun rerouteVia(poi: PoiResult) {
+        // A recalculation already running — an off-route rejoin, most often —
+        // makes recalculateTo a no-op. That must not happen silently here: the
+        // "Recalculating…" banner is already on screen for the other request, so
+        // every visible signal would tell the rider their diversion is being
+        // worked out while nothing had been asked for, and they would ride past
+        // the petrol station believing it was coming.
+        if (recalculating) {
+            _errorMessage.value =
+                "Still working out the last route change — try ${poi.name} again in a moment."
+            return
+        }
+
+        dismissPoiSearch()
+        val destinations = listOf(Waypoint(poi.name, poi.location)) + navigationManager.remainingWaypoints()
+        if (destinations.size < 2 && navigationManager.route == null) {
+            _errorMessage.value = "No active route to divert."
+            return
+        }
+
+        // Paused, the GPS subscription is stopped, but replaceRoute puts the state
+        // back to NAVIGATING — leaving a live-looking screen with a frozen position.
+        // A rider picking a fuel stop plainly means to get going again, so resume
+        // properly rather than half-way.
+        if (uiState.value.state == NavigationState.PAUSED) {
+            resumeNavigation()
+        }
+
+        recalculateTo(destinations, "Could not find a route via ${poi.name}.")
+    }
+
     /**
      * Rebuild the route from the rider's current position to the waypoints still
-     * ahead of them. Used both for an explicit skip and for automatic off-route
-     * recovery.
+     * ahead of them. Used for an explicit skip, a diversion to fuel or food, and
+     * automatic off-route recovery.
      */
     private fun recalculateTo(destinations: List<Waypoint>, failureMessage: String) {
         val here = navigationManager.locationFlow.value ?: run {

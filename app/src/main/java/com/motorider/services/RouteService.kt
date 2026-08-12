@@ -180,6 +180,11 @@ class RouteService {
             conn.readTimeout = 15000
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("User-Agent", "MotoRider/1.0")
+            // Omitted when no credential is configured, which is the local
+            // docker-compose case - it has no proxy and answers unauthenticated.
+            if (ApiConfig.mayAuthenticate(url.toString())) {
+                conn.setRequestProperty("Authorization", ApiConfig.authorizationHeader)
+            }
 
             conn.outputStream.use { os ->
                 os.write(jsonBody.toString().toByteArray(Charsets.UTF_8))

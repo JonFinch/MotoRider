@@ -43,8 +43,10 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +59,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import com.motorider.maps.MotorcycleMapRenderer
 import com.motorider.models.Avoidance
+import com.motorider.models.PoiCategory
 import com.motorider.models.Route
 import com.motorider.models.RouteType
 import com.motorider.navigation.NavigationCamera
@@ -64,12 +67,17 @@ import com.motorider.navigation.NavigationState
 import com.motorider.navigation.NavigationUIState
 import com.motorider.services.RouteService
 import com.motorider.ui.component.LocationPickerDialog
+import com.motorider.ui.component.PoiPicker
 import com.motorider.ui.component.RouteStop
 import com.motorider.ui.component.StopKind
 import com.motorider.ui.viewmodel.NavigationViewModel
+import com.motorider.ui.viewmodel.PoiSearchState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.motorider.ui.component.OsmMapView
 import com.motorider.ui.theme.*
+import com.motorider.utils.RouteSuperlative
+import com.motorider.utils.RouteUtils
+import com.motorider.utils.routeSuperlatives
 import kotlinx.coroutines.launch
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -127,6 +135,7 @@ fun MapScreen(
     onThemeModeChange: (ThemeMode) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
 
     var mapView by remember { mutableStateOf<MapView?>(null) }
     var currentLocation by remember { mutableStateOf<GeoPoint?>(null) }
@@ -191,6 +200,7 @@ fun MapScreen(
     val navState by navigationViewModel.uiState.collectAsState()
     val navError by navigationViewModel.errorMessage.collectAsState()
     val navLocation by navigationViewModel.locationFlow.collectAsState()
+    val poiSearch by navigationViewModel.poiSearch.collectAsState()
 
     // Hold the display awake for the whole ride. The service's PARTIAL_WAKE_LOCK only
     // keeps the CPU running so fixes keep arriving — it does nothing for the screen,
@@ -308,6 +318,52 @@ fun MapScreen(
         currentScreen = Screen.Navigation
     }
 
+    // ─── Dropping a stop by long-pressing the map ────────────────────────────
+    //
+    // The label is a coordinate to begin with and is replaced by a real address
+    // when Nominatim answers. Waiting for the address before showing anything
+    // would leave the rider holding a finger on the map wondering if it worked,
+    // over a request that can take a second and might fail outright.
+    val droppedPinFmt = stringResource(R.string.dropped_pin_fmt)
+    val stopAddedDestinationMsg = stringResource(R.string.map_stop_added_destination)
+    val stopAddedViaMsg = stringResource(R.string.map_stop_added_via)
+
+    fun addStopFromMap(point: GeoPoint) {
+        val placeholder = droppedPinFmt.format(point.latitude, point.longitude)
+        // The destination is the first thing a rider dropping a pin usually means;
+        // once it is set, further pins are stops on the way to it.
+        val asDestination = !planDraft.destination.isSet
+        val stop = RouteStop(label = placeholder, point = point)
+
+        planDraft = if (asDestination) {
+            planDraft.copy(destination = stop)
+        } else {
+            planDraft.copy(via = planDraft.via + stop)
+        }
+        planPanelVisible = true
+        routeInfoVisible = false
+        scope.launch {
+            snackbarHostState.showSnackbar(
+                if (asDestination) stopAddedDestinationMsg else stopAddedViaMsg
+            )
+        }
+
+        RouteUtils.reverseGeocode(point.latitude, point.longitude) { address ->
+            if (address.isNullOrBlank()) return@reverseGeocode
+            val named = RouteUtils.splitPlaceName(address).first
+            // Matched on the placeholder rather than by index: the rider may have
+            // cleared or reordered stops while the lookup was in flight, and
+            // renaming whatever now sits in that slot would retitle a place they
+            // chose deliberately.
+            fun RouteStop.renamed() =
+                if (label == placeholder && this.point == point) copy(label = named) else this
+            planDraft = planDraft.copy(
+                destination = planDraft.destination.renamed(),
+                via = planDraft.via.map { it.renamed() }
+            )
+        }
+    }
+
     // Every planning failure the rider can act on ends up here, so none of them can
     // be the silent no-op the old code produced when routing came back empty.
     val geocodeFailedFmt = stringResource(R.string.geocode_failed_fmt)
@@ -347,6 +403,19 @@ fun MapScreen(
     val endColor = MarkerEnd.toArgb()
     val remainingColor = RouteRemaining.toArgb()
     val travelledColor = RouteTravelled.toArgb()
+    // The same hue as the chosen route at half opacity: an alternative has to read
+    // as "the same kind of thing, not selected" rather than as a second, different
+    // feature on the map. Alpha rather than a new colour, because the palette is
+    // deliberately small and a third route tone would have to be defended against
+    // both tile extremes for no gain.
+    //
+    // This is the one graphic in the app deliberately below the 3:1 the contrast
+    // audit asks of a non-text element, and it does not appear in `Color.kt` so the
+    // script never sees it. That is the intent: an alternative carries no
+    // information a rider acts on — the chosen route does, and it stays at full
+    // strength and full width. Anything legible enough to pass 3:1 here competed
+    // with the line actually being ridden.
+    val alternativeColor = RouteRemaining.copy(alpha = 0.5f).toArgb()
     // Keyed on position too, so the split follows the rider rather than only moving
     // when the route itself changes.
     LaunchedEffect(
@@ -355,6 +424,22 @@ fun MapScreen(
     ) {
         val route = currentRoutes.getOrNull(selectedRouteIndex)
         val geometry = if (navigating) navState.routeGeometry else route?.routeGeometry
+
+        // Cleared before the early return, not after it. `navigating` flips the
+        // instant the rider taps Start, but navState.routeGeometry stays null
+        // until the first GPS fix — seconds outdoors, minutes from a garage, and
+        // forever if the permission was refused. Returning first left the planning
+        // map's dim alternative lines and stop markers on the guidance display for
+        // exactly that window: three decoy routes on screen at the moment the
+        // rider is deciding which way to turn out of the car park, still tappable,
+        // so a stray touch silently switched the selected route behind the overlay.
+        if (navigating || currentRoutes.size <= 1) {
+            mapRenderer.clearAlternativeRoutes(mapView)
+        }
+        if (navigating) {
+            mapRenderer.clearWaypointMarkers(mapView)
+        }
+
         if (geometry == null) return@LaunchedEffect
 
         // Only while actually riding. Paused or arrived, "how far have I got" is
@@ -366,6 +451,21 @@ fun MapScreen(
         mapRenderer.renderMotorcycleRoute(
             mapView, geometry, progress, remainingColor, travelledColor
         )
+
+        // The routes not taken. Only while planning: mid-ride there is one road the
+        // rider is being sent down, and drawing the ones they turned down beside it
+        // would be noise at exactly the wrong moment.
+        if (!navigating && currentRoutes.size > 1) {
+            mapRenderer.renderAlternativeRoutes(
+                mapView = mapView,
+                geometries = currentRoutes.mapIndexedNotNull { i, alternative ->
+                    if (i == selectedRouteIndex) null
+                    else alternative.routeGeometry?.let { i to it }
+                },
+                alternativeColor = alternativeColor,
+                onSelect = { selectedRouteIndex = it }
+            )
+        }
 
         // Stop markers belong to the plan, not the ride: while navigating the
         // heading-up camera and turn banner say where to go, and dots on the line
@@ -556,6 +656,15 @@ fun MapScreen(
                             else -> {}
                         }
                     },
+                    onMapLongPress = { point ->
+                        // Planning only. Mid-ride the map is a guidance display and
+                        // a long press is far more likely to be a rider steadying
+                        // the phone than a deliberate edit to the route they are on.
+                        if (currentScreen == Screen.Plan && !navigating) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            addStopFromMap(point)
+                        }
+                    },
                     onMapPinched = {
                         navigationCamera.onUserZoomGesture(android.os.SystemClock.elapsedRealtime())
                     },
@@ -734,6 +843,26 @@ fun MapScreen(
                         },
                         onEndNavigation = { stopNavigating() },
                         onSkipWaypoint = { navigationViewModel.skipWaypoint() },
+                        poiPickerOpen = poiSearch !is PoiSearchState.Closed,
+                        onFindFuel = { navigationViewModel.searchPoi(PoiCategory.FUEL) },
+                        onFindFood = { navigationViewModel.searchPoi(PoiCategory.RESTAURANT) },
+                        poiPicker = {
+                            PoiPicker(
+                                state = poiSearch,
+                                formatDistance = { meters ->
+                                    if (distanceUnitMiles) {
+                                        val miles = meters / 1609.344
+                                        if (miles < 0.1) "${meters.toInt()} m"
+                                        else "%.1f mi".format(miles)
+                                    } else {
+                                        if (meters < 1000) "${meters.toInt()} m"
+                                        else "%.1f km".format(meters / 1000.0)
+                                    }
+                                },
+                                onSelect = { navigationViewModel.rerouteVia(it) },
+                                onDismiss = { navigationViewModel.dismissPoiSearch() }
+                            )
+                        },
                         distanceUnitMiles = distanceUnitMiles
                     )
                 }
@@ -1243,8 +1372,20 @@ private fun RouteInfoCard(
             }
 
             // Alternatives were labelled "Route 1", "Alt 2" — nothing to choose
-            // between. Each chip now states what makes that option different.
+            // between. Each chip states its distance and time, and the one that is
+            // the pick of the bunch on some axis says which, so the rider is
+            // choosing between characters rather than between two similar numbers.
+            // The lines themselves are drawn on the map underneath.
             if (routes.size > 1) {
+                val superlatives = remember(routes) {
+                    routeSuperlatives(routes).mapValues { (_, superlative) ->
+                        when (superlative) {
+                            RouteSuperlative.FASTEST -> R.string.route_alt_fastest
+                            RouteSuperlative.SHORTEST -> R.string.route_alt_shortest
+                            RouteSuperlative.CURVIEST -> R.string.route_alt_curviest
+                        }
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -1252,15 +1393,26 @@ private fun RouteInfoCard(
                 ) {
                     routes.forEachIndexed { i, alternative ->
                         val duration = formatDurationMinutes(alternative.duration)
+                        val superlative = superlatives[i]?.let { stringResource(it) }
                         FilterChip(
                             selected = i == selectedIndex,
                             onClick = { onSelectRoute(i) },
                             label = {
-                                Text(
-                                    "${formatDistanceKm(alternative.distance, distanceUnitMiles)} · $duration",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    maxLines = 1
-                                )
+                                Column {
+                                    Text(
+                                        "${formatDistanceKm(alternative.distance, distanceUnitMiles)} · $duration",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1
+                                    )
+                                    if (superlative != null) {
+                                        Text(
+                                            superlative,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
                             }
                         )
                     }

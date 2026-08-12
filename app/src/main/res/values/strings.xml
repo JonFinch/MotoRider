@@ -267,4 +267,35 @@
     <string name="screen_navigation">Navigation</string>
     <string name="pause">Pause</string>
     <string name="resume">Resume</string>
+
+    <!-- Mid-ride fuel and food -->
+    <string name="poi_fuel">Fuel</string>
+    <string name="poi_food">Food</string>
+    <string name="poi_fuel_heading">Petrol ahead</string>
+    <string name="poi_food_heading">Food ahead</string>
+    <!-- Used when nothing was found on the route: the headline must not keep
+         claiming "ahead" for results the app has just established are not. -->
+    <string name="poi_fuel_heading_nearby">Petrol nearby</string>
+    <string name="poi_food_heading_nearby">Food nearby</string>
+    <string name="poi_searching">Looking along your route…</string>
+    <string name="poi_close">Close</string>
+    <string name="poi_ahead">on route</string>
+    <string name="poi_direct_line">straight line</string>
+    <!-- Never "open now": OSM opening hours are patchy and often stale, so the app
+         shows what is tagged and says plainly when nothing is. -->
+    <string name="poi_hours_unknown">Opening hours not known</string>
+    <string name="poi_none_on_route">Nothing in the next 10 miles on your route. These are nearby, off it.</string>
+    <string name="poi_empty">Nothing found near you.</string>
+    <string name="poi_failed_fmt">Search failed: %s</string>
+
+    <!-- Placing stops by long-pressing the map -->
+    <string name="map_stop_added_destination">Destination set from the map</string>
+    <string name="map_stop_added_via">Stop added from the map</string>
+    <string name="map_long_press_hint">Press and hold the map to drop a stop</string>
+    <string name="dropped_pin_fmt">Pin at %1$.4f, %2$.4f</string>
+
+    <!-- Route alternatives -->
+    <string name="route_alt_fastest">Fastest</string>
+    <string name="route_alt_shortest">Shortest</string>
+    <string name="route_alt_curviest">Curviest</string>
 </resources>
